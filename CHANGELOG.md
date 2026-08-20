@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a Quit action to the mini-player footer that pauses playback and stops
+  the backend, so closing the window no longer leaves music playing with no
+  obvious way to stop it short of the idle timeout.
+
 - Finish installing Omasing after the shell reloads. Adding the plugin writes
   into the plugin directory, which used to kill the installer before the
   lyrics widget could be enabled.

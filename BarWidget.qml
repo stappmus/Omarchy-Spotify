@@ -69,6 +69,8 @@ BarWidget {
     if (spotify && spotify.lyricsAvailable) actions.push("lyrics")
     if (spotify && spotify.hasPlayer && spotify.volumeSupported)
       actions.push("volume")
+    if (spotify && spotify.accountConnected
+      && spotify.daemon && spotify.daemon.running) actions.push("quit")
     actions.push("open")
     return actions
   }
@@ -79,6 +81,13 @@ BarWidget {
   function close() {
     miniShortcutHelpVisible = false
     popupOpen = false
+  }
+  function quitPlayer() {
+    if (spotify) {
+      if (spotify.playing) spotify.togglePlayback()
+      spotify.stopEngine()
+    }
+    close()
   }
   function closeForPopoutSwitch() {
     popoutSwitchClosing = true
@@ -278,7 +287,8 @@ BarWidget {
     else if (action === "prompt-confirm") {
       if (spotify && !spotify.lyricsPluginBusy)
         spotify.confirmLyricsPlugin(lyricsRequestKey)
-    } else if (action === "artist") openCurrentArtist()
+    } else if (action === "quit") quitPlayer()
+    else if (action === "artist") openCurrentArtist()
     else if (action === "like") {
       if (spotify) spotify.toggleCurrentTrackSaved()
     } else if (action === "shuffle") {
@@ -988,6 +998,8 @@ BarWidget {
 
         Text {
           width: parent.width - openButton.width - Style.space(6)
+            - (miniQuitButton.visible
+              ? miniQuitButton.width + Style.space(6) : 0)
           anchors.verticalCenter: parent.verticalCenter
           text: !root.spotify ? "Spotify is unavailable"
             : (root.spotify.lastError !== "" ? root.spotify.lastError
@@ -1005,6 +1017,20 @@ BarWidget {
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+        }
+
+        Button {
+          id: miniQuitButton
+          text: "Quit"
+          iconText: "󰐥"
+          foreground: root.foreground
+          focusable: true
+          visible: root.spotify && root.spotify.accountConnected
+            && root.spotify.daemon && root.spotify.daemon.running
+          hasCursor: root.miniCursorActive && root.miniCursor === "quit"
+          tooltipText: "Stop playback and shut the backend down"
+          onClicked: root.quitPlayer()
+          onHovered: function(on) { if (on) root.setMiniCursor("quit") }
         }
 
         Button {
