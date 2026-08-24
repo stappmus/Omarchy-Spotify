@@ -34,6 +34,7 @@
       "showMiniPlayer": "On",
       "shortcutPlayer": "Omarchy Music app",
       "shortcutHints": "On",
+      "showArtwork": "On",
       "showTrackTitle": "On",
       "showArtistName": "Off",
       "scrollBarText": "Off",
@@ -92,6 +93,17 @@
         ],
         "defaultValue": "On",
         "description": "After the first shortcut, matching controls show the next key to press. Shortcuts still work when this is off."
+      },
+      {
+        "key": "showArtwork",
+        "type": "enum",
+        "label": "Show artwork",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "When off, covers are never downloaded and the app becomes text-only."
       },
       {
         "key": "showTrackTitle",

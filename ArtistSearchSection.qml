@@ -70,7 +70,8 @@ Column {
     clip: false
     reuseItems: true
     cellWidth: width / root.columnCount
-    cellHeight: Style.space(72)
+    cellHeight: root.service && root.service.artworkEnabled
+      ? Style.space(72) : Style.space(50)
 
     delegate: Item {
       id: resultCell
@@ -91,6 +92,7 @@ Column {
         showPlaylist: root.showPlaylist
         showSave: root.showSave
         saved: root.service ? root.service.isSaved(modelData) : false
+        artworkEnabled: !root.service || root.service.artworkEnabled
         onActivated: function(item) {
           root.activated(item, root.sourceItems, root.contextUri)
         }

@@ -833,13 +833,16 @@ BarWidget {
           miniNowPlayingMetadata.implicitHeight)
         height: implicitHeight
         readonly property real metadataSpacing: Style.space(12)
+        readonly property bool artworkVisible: !root.spotify
+          || root.spotify.artworkEnabled
         visible: !root.lyricsInstallPromptVisible
           && (!root.spotify || root.spotify.accountConnected)
 
         BorderSurface {
           id: miniArtworkSurface
-          width: Style.space(78)
+          width: miniNowPlaying.artworkVisible ? Style.space(78) : 0
           height: width
+          visible: miniNowPlaying.artworkVisible
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
           radius: Style.cornerRadius
@@ -850,7 +853,8 @@ BarWidget {
             id: popupArtwork
             anchors.fill: parent
             anchors.margins: Style.space(3)
-            source: root.popupOpen && root.spotify ? root.spotify.artUrl : ""
+            source: root.popupOpen && root.spotify && root.spotify.artworkEnabled
+              ? root.spotify.artUrl : ""
             sourceSize.width: 156
             sourceSize.height: 156
             fillMode: Image.PreserveAspectFit
@@ -873,7 +877,8 @@ BarWidget {
         Column {
           id: miniNowPlayingMetadata
           anchors.left: miniArtworkSurface.right
-          anchors.leftMargin: miniNowPlaying.metadataSpacing
+          anchors.leftMargin: miniArtworkSurface.visible
+            ? miniNowPlaying.metadataSpacing : 0
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(4)

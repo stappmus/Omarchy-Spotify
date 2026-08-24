@@ -42,10 +42,12 @@ Item {
   property var navigationStack: []
   property string lastContentTab: "home"
   property string restoredPlaylistId: ""
+  readonly property bool artworkVisible: !service || service.artworkEnabled
 
   property string draftDeviceName: "Omarchy Spotify"
   property string draftIdleMinutes: "15"
   property bool draftShowMiniPlayer: true
+  property bool draftShowArtwork: true
   property string draftShortcutPlayer: "Omarchy Music app"
   property bool draftShortcutHints: true
   property bool shortcutModeLatched: false
@@ -173,6 +175,7 @@ Item {
     draftDeviceName = service.deviceName
     draftIdleMinutes = String(service.idleShutdownMinutes)
     draftShowMiniPlayer = service.showMiniPlayer
+    draftShowArtwork = service.artworkEnabled
     draftShortcutPlayer = service.shortcutPlayer
     draftShortcutHints = service.shortcutHintsEnabled
     draftShowTitle = service.showTrackTitle
@@ -190,6 +193,7 @@ Item {
       idleShutdownMinutes: Math.max(0, Math.min(1440,
         Math.floor(Number(draftIdleMinutes) || 0))),
       showMiniPlayer: draftShowMiniPlayer ? "On" : "Off",
+      showArtwork: draftShowArtwork ? "On" : "Off",
       shortcutPlayer: draftShortcutPlayer,
       shortcutHints: draftShortcutHints ? "On" : "Off",
       showTrackTitle: draftShowTitle ? "On" : "Off",
@@ -3812,11 +3816,15 @@ Item {
               width: Math.max(Style.space(170), Math.min(Style.space(240), playerRow.width * 0.29))
               height: parent.height
               readonly property real metadataSpacing: Style.space(9)
+              readonly property bool artworkVisible: !root.service
+                || root.service.artworkEnabled
 
               BorderSurface {
                 id: nowPlayingArtwork
-                width: Math.min(parent.height, Style.space(68))
+                width: nowPlaying.artworkVisible
+                  ? Math.min(parent.height, Style.space(68)) : 0
                 height: width
+                visible: nowPlaying.artworkVisible
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 radius: Style.cornerRadius
@@ -3824,9 +3832,11 @@ Item {
                 borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
 
                 Image {
+                  id: nowPlayingArtworkImage
                   anchors.fill: parent
                   anchors.margins: Style.space(2)
-                  source: root.service ? root.service.artUrl : ""
+                  source: root.service && root.service.artworkEnabled
+                    ? root.service.artUrl : ""
                   sourceSize.width: 136
                   sourceSize.height: 136
                   fillMode: Image.PreserveAspectFit
@@ -3837,7 +3847,7 @@ Item {
 
                 Text {
                   anchors.centerIn: parent
-                  visible: !root.service || root.service.artUrl === ""
+                  visible: nowPlayingArtworkImage.status !== Image.Ready
                   text: "󰎈"
                   color: root.muted
                   font.family: root.fontFamily
@@ -3848,7 +3858,8 @@ Item {
 
               Column {
                 anchors.left: nowPlayingArtwork.right
-                anchors.leftMargin: nowPlaying.metadataSpacing
+                anchors.leftMargin: nowPlayingArtwork.visible
+                  ? nowPlaying.metadataSpacing : 0
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(3)
@@ -4486,8 +4497,10 @@ Item {
             spacing: Style.space(12)
 
             BorderSurface {
-              width: parent.height
+              id: detailArtworkSurface
+              width: visible ? parent.height : 0
               height: width
+              visible: root.artworkVisible
               radius: Style.cornerRadius
               color: Style.selectedFillFor(root.foreground, root.accent)
               borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
@@ -4497,6 +4510,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Style.space(2)
                 source: root.service && root.service.detailItem
+                  && root.service.artworkEnabled
                   ? String(root.service.detailItem.imageUrl || "") : ""
                 sourceSize.width: 256
                 sourceSize.height: 256
@@ -4518,8 +4532,9 @@ Item {
             }
 
             Column {
-              width: Math.max(80, parent.width - parent.height - detailActions.width
-                - parent.spacing * 2)
+              width: Math.max(80, parent.width - detailArtworkSurface.width
+                - detailActions.width
+                - parent.spacing * (detailArtworkSurface.visible ? 2 : 1))
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(4)
 
@@ -4762,6 +4777,7 @@ Item {
                 showQueue: false
                 showPlaylist: false
                 showSave: true
+                artworkEnabled: !root.service || root.service.artworkEnabled
                 saved: root.service && root.service.isSaved(itemData)
                 onActivated: function(item) { root.activateMedia(item, [item], item.uri) }
                 onOpenRequested: function(item) { root.openItem(item) }
@@ -4930,6 +4946,7 @@ Item {
                       && searchMediaGroup.rowData.sectionId === "songs"
                     showPlaylist: showQueue
                     showSave: true
+                    artworkEnabled: !root.service || root.service.artworkEnabled
                     saved: root.service && root.service.isSaved(modelData)
                     onActivated: function(item) {
                       var sectionId = searchMediaGroup.rowData.sectionId
@@ -5538,6 +5555,7 @@ Item {
               && root.cursorOn("page", "list")
             showQueue: false
             showSave: true
+            artworkEnabled: !root.service || root.service.artworkEnabled
             saved: root.service && root.service.isSaved(modelData)
             onActivated: function(item) {
               root.activateMedia(item, queueRoot.visibleItems, "")
@@ -6308,6 +6326,42 @@ Item {
               Text {
                 width: parent.width
                 text: "After a shortcut or Tab, matching buttons glow and show the next key. Hold Ctrl, Shift, or Alt to see those chords, or press Ctrl+H to turn them off. Turn them on here again whenever you want the overlay back."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                text: "ARTWORK"
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Button {
+                text: "Artwork · " + (root.draftShowArtwork ? "On" : "Off")
+                iconText: "󰀥"
+                foreground: root.foreground
+                selected: root.draftShowArtwork
+                tooltipText: root.draftShowArtwork
+                  ? "Album and playlist covers are shown"
+                  : "Covers are hidden and the space is given to text"
+                onClicked: {
+                  root.draftShowArtwork = !root.draftShowArtwork
+                  root.persistDraftSettings()
+                }
+              }
+
+              Text {
+                width: parent.width
+                text: "Turn off to stop downloading album and playlist covers. The app becomes text-only."
                 color: root.muted
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
