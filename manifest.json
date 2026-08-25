@@ -32,6 +32,7 @@
       "deviceName": "Omarchy Spotify",
       "idleShutdownMinutes": 15,
       "showMiniPlayer": "On",
+      "showVinylRecord": "Off",
       "shortcutPlayer": "Omarchy Music app",
       "shortcutHints": "On",
       "showTrackTitle": "On",
@@ -69,6 +70,17 @@
         ],
         "defaultValue": "On",
         "description": "When off, clicking the Spotify bar icon opens the full player directly."
+      },
+      {
+        "key": "showVinylRecord",
+        "type": "enum",
+        "label": "Spinning vinyl artwork",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "Off",
+        "description": "Adds a spinning vinyl record for the mini-player artwork while music is playing."
       },
       {
         "key": "shortcutPlayer",

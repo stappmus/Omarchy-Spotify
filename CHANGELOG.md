@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an optional spinning vinyl-record style to the mini-player. The default
+  remains the original rectangular artwork.
 - Reconnect a closed librespot session inside the existing backend process, so
   transient Spotify connection closures no longer tear down the local socket
   and MPRIS player. Fall back to the supervised restart after five reconnects
