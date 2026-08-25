@@ -30,12 +30,7 @@ Item {
   property string playlistSort: "default"
   property string detailFilter: ""
   property string detailSort: "default"
-  property string homeFilter: ""
-  property string discoverFilter: ""
-  property string queueFilter: ""
-  property string artistSearchText: ""
-  property bool searchInContext: true
-  property bool universalSearchActive: false
+  property var globalSearchField: null
   property var scrollPositions: ({})
   property var scrollPositionOrder: []
   readonly property int scrollPositionLimit: 128
@@ -90,14 +85,6 @@ Item {
   readonly property bool sessionPending: service && service.sessionPending
   readonly property bool compactHeight: window.height < Style.space(620)
   readonly property bool compactWidth: window.width < Style.space(760)
-  readonly property var activeSearchScope: Api.searchScope(currentTab,
-    service ? service.detailItem : null,
-    service ? service.selectedPlaylist : null, homeType, libraryType)
-  readonly property bool showingUniversalSearch: Api.universalSearchVisible(
-    currentTab, universalSearchActive)
-  readonly property bool artistScopedSearchActive: currentTab === "detail"
-    && service && service.detailItem && service.detailItem.type === "artist"
-    && artistSearchText.trim() !== ""
   readonly property bool shortcutsBlocked: mediaContextMenu.opened
     || playlistPicker.opened || createPlaylistPopup.opened || sleepPopup.opened
     || shortcutHelpPopup.opened || lyricsInstallPopup.opened
@@ -135,7 +122,6 @@ Item {
       root.hintShiftHeld
       root.hintAltHeld
       playlistShortcuts.currentIndex
-      unifiedSearchField.activeFocus
       return region && action ? root.navHintFor(region, action) : ""
     }
     foreground: root.foreground
@@ -346,23 +332,22 @@ Item {
   }
 
   function releaseSearchFocus() {
-    if (unifiedSearchField.activeFocus) unifiedSearchField.focus = false
+    if (globalSearchField && globalSearchField.activeFocus)
+      globalSearchField.focus = false
     focusScope.forceActiveFocus()
   }
 
   function dismissSearch() {
-    var action = Api.searchEscapeAction(unifiedSearchBar.visible,
-      unifiedSearchField.activeFocus, unifiedSearchText(),
-      showingUniversalSearch && currentTab !== "search")
-    if (action === "dismiss") {
-      clearUnifiedSearch()
+    if (globalSearchField && globalSearchField.activeFocus) {
       releaseSearchFocus()
       disarmEscapeClose()
       return true
     }
-    if (action === "blur") {
-      releaseSearchFocus()
-      return false
+    var collection = pageCollection()
+    if (collection && collection.filterFocused) {
+      focusScope.forceActiveFocus()
+      disarmEscapeClose()
+      return true
     }
     return false
   }
@@ -434,20 +419,13 @@ Item {
     playlistSort = String(state.playlistSort || "default")
     detailFilter = String(state.detailFilter || "")
     detailSort = String(state.detailSort || "default")
-    homeFilter = String(state.homeFilter || "")
-    discoverFilter = String(state.discoverFilter || "")
-    queueFilter = String(state.queueFilter || "")
-    artistSearchText = String(state.artistSearchText || "")
-    searchInContext = true
-    universalSearchActive = false
     restoreScrollPositions(state.scrollPositions)
     restoredPlaylistId = String(state.selectedPlaylistId || "")
     var restoredTab = String(state.tab || "home")
     if (["home", "discover", "search", "library", "playlists", "detail", "queue", "devices", "setup"]
         .indexOf(restoredTab) >= 0) currentTab = restoredTab
     if (restoreDetail !== false && currentTab === "detail" && state.detailItem)
-      service.openDetail(state.detailItem, artistSearchText)
-    syncUnifiedSearchField()
+      service.openDetail(state.detailItem)
   }
 
   function persistUiState() {
@@ -464,11 +442,6 @@ Item {
       playlistSort: playlistSort,
       detailFilter: detailFilter,
       detailSort: detailSort,
-      homeFilter: homeFilter,
-      discoverFilter: discoverFilter,
-      queueFilter: queueFilter,
-      artistSearchText: currentTab === "detail" && service.detailItem
-        && service.detailItem.type === "artist" ? artistSearchText : "",
       scrollPositions: scrollPositions,
       detailItem: currentTab === "detail" && service.detailItem ? service.detailItem : null,
       selectedPlaylistId: service.selectedPlaylist ? service.selectedPlaylist.id : restoredPlaylistId,
@@ -498,23 +471,15 @@ Item {
     stack.push({
       tab: currentTab,
       item: currentTab === "detail" && service ? service.detailItem : null,
-      universalSearchActive: universalSearchActive,
-      searchInContext: searchInContext,
-      artistSearchText: currentTab === "detail" && service && service.detailItem
-        && service.detailItem.type === "artist" ? artistSearchText : "",
       detailFilter: currentTab === "detail" && service && service.detailItem
-        && service.detailItem.type !== "artist" ? detailFilter : ""
+        ? detailFilter : ""
     })
     navigationStack = stack
-    unifiedSearchDelay.stop()
-    searchInContext = true
-    universalSearchActive = false
+    globalSearchDelay.stop()
     if (service) service.cancelSearch(false)
     currentTab = "detail"
-    if (item.type === "artist") artistSearchText = ""
-    else detailFilter = ""
+    detailFilter = ""
     if (service) service.openDetail(item)
-    syncUnifiedSearchField()
   }
 
   function openCurrentArtist() {
@@ -535,36 +500,67 @@ Item {
     var stack = navigationStack.slice()
     var destination = stack.pop()
     navigationStack = stack
-    unifiedSearchDelay.stop()
+    globalSearchDelay.stop()
     if (service) service.cancelSearch(false)
     currentTab = destination.tab || "search"
-    universalSearchActive = destination.universalSearchActive === true
-    searchInContext = destination.searchInContext === undefined
-      ? !universalSearchActive : destination.searchInContext === true
     if (currentTab === "detail" && destination.item && service) {
-      artistSearchText = destination.item.type === "artist"
-        ? String(destination.artistSearchText || "") : ""
-      detailFilter = destination.item.type === "artist"
-        ? "" : String(destination.detailFilter || "")
-      service.openDetail(destination.item, artistSearchText)
+      detailFilter = String(destination.detailFilter || "")
+      service.openDetail(destination.item)
     }
-    if (service && (currentTab === "search" || universalSearchActive)) {
+    if (service && currentTab === "search") {
       if (searchText.trim() === "") service.clearSearch()
-      else service.search(searchText)
+      else service.search(searchText, searchType)
     }
     else if (service && currentTab !== "detail") service.openView(currentTab, false)
-    syncUnifiedSearchField()
   }
 
   function activateMedia(item, sourceItems, contextUri) {
     if (!item || !service) return
-    if (unifiedSearchField.activeFocus) focusScope.forceActiveFocus()
+    if (globalSearchField && globalSearchField.activeFocus)
+      focusScope.forceActiveFocus()
     service.playItem(item, sourceItems, contextUri)
   }
 
   function textInputFocused() {
     var item = window.activeFocusItem
     return !!item && ("acceptableInput" in item || "echoMode" in item)
+  }
+
+  function categoryPositionForKey(key) {
+    // Qt reports the character produced by the active keyboard layout.  The
+    // unshifted AZERTY number row is therefore & é " ' ( - è, not 1…7.
+    var keys = [
+      [Qt.Key_1, Qt.Key_Ampersand],
+      [Qt.Key_2, Qt.Key_Eacute],
+      [Qt.Key_3, Qt.Key_QuoteDbl],
+      [Qt.Key_4, Qt.Key_Apostrophe],
+      [Qt.Key_5, Qt.Key_ParenLeft],
+      [Qt.Key_6, Qt.Key_Minus],
+      [Qt.Key_7, Qt.Key_Egrave]
+    ]
+    for (var index = 0; index < keys.length; ++index)
+      if (keys[index].indexOf(key) !== -1) return index + 1
+    return 0
+  }
+
+  function categoryTypeAtPosition(position) {
+    if (currentTab === "search") return Api.searchTypeAtShortcut(position)
+    if (currentTab === "library") return Api.libraryTypeAtShortcut(position)
+    return ""
+  }
+
+  function handleCategoryKey(event) {
+    if ((currentTab !== "search" && currentTab !== "library") || shortcutsBlocked
+        || !(event.modifiers & Qt.ControlModifier)
+        || (event.modifiers & (Qt.AltModifier | Qt.MetaModifier))) return false
+    var type = categoryTypeAtPosition(categoryPositionForKey(event.key))
+    if (!type) return false
+    if (currentTab === "search") selectSearchType(type)
+    else {
+      libraryType = type
+      if (service) service.loadLibrary(type, false)
+    }
+    return true
   }
 
   function shortcutHint(label, keys) {
@@ -660,11 +656,14 @@ Item {
   }
 
   function tabDestination(back) {
-    if (unifiedSearchField.activeFocus) {
+    var collection = pageCollection()
+    var focusedAction = globalSearchField && globalSearchField.activeFocus
+      ? "search-input" : collection && collection.filterFocused ? "filter" : ""
+    if (focusedAction) {
       return Api.tabCursorDestination({
         regions: panelCursorRegions(),
-        currentRegion: "header",
-        currentAction: "search",
+        currentRegion: "page",
+        currentAction: focusedAction,
         pageActions: pageCursorActions(),
         actionsByRegion: cursorActionsByRegion(),
         listCount: pageListCount(),
@@ -709,7 +708,7 @@ Item {
   }
 
   function searchPageLanding() {
-    if (!showingUniversalSearch) return ""
+    if (currentTab !== "search") return ""
     var type = String(searchType || "track")
     return "search-" + type
   }
@@ -891,10 +890,6 @@ Item {
   function headerCursorActions() {
     var actions = []
     if (backButton.visible) actions.push("back")
-    if (unifiedSearchBar.visible) {
-      actions.push("search")
-      if (searchScopeButton.visible) actions.push("scope")
-    }
     actions.push("help")
     if (refreshButton.visible) actions.push("refresh")
     actions.push("close")
@@ -927,15 +922,15 @@ Item {
         "library-shows", "library-episodes", "library-audiobooks")
     if (currentTab === "playlists" && service && service.selectedPlaylist)
       actions.push("playlist-play", "playlist-more")
-    if (showingUniversalSearch) {
+    if (localFilterAvailable()) actions.push("filter")
+    if (currentTab === "search") {
+      actions.push("search-input")
       for (var s = 0; s < Api.SEARCH_TYPES.length; s++)
         actions.push("search-" + Api.SEARCH_TYPES[s])
     }
     var artistCatalog = currentTab === "detail" && service && service.detailItem
-      && service.detailItem.type === "artist" && !artistScopedSearchActive
-      && !showingUniversalSearch
-    if (currentTab === "detail" && service && service.detailItem
-        && !showingUniversalSearch) {
+      && service.detailItem.type === "artist"
+    if (currentTab === "detail" && service && service.detailItem) {
       var kind = service.detailItem.type
       if (["show", "audiobook"].indexOf(kind) < 0
           || (service.detailItems && service.detailItems.length > 0))
@@ -1106,8 +1101,10 @@ Item {
       var prev = Api.moveCursorAction(actions, id, -1)
       var next = Api.moveCursorAction(actions, id, 1)
       collection.keyboardHintsActive = hintsOn
+      collection.keyboardFilterSelected = cursorOn("page", "filter")
       collection.keyboardSortSelected = cursorOn("page", "sort")
       collection.keyboardMoreSelected = cursorOn("page", "more")
+      collection.keyboardFilterHint = hintsOn ? navHintFor("page", "filter") : ""
       collection.keyboardSortHint = hintsOn ? navHintFor("page", "sort") : ""
       collection.keyboardMoreHint = hintsOn ? navHintFor("page", "more") : ""
       collection.keyboardListHint = ""
@@ -1135,6 +1132,7 @@ Item {
     var action = panelCursorAction
     if (action === "nav-home") chooseTab("home")
     else if (action === "nav-discover") chooseTab("discover")
+    else if (action === "nav-search") focusSearch()
     else if (action === "nav-radio") openLastRadio()
     else if (action === "nav-queue") chooseTab("queue")
     else if (action === "nav-library") chooseTab("library")
@@ -1149,8 +1147,8 @@ Item {
       }
     } else if (action === "nav-settings") chooseTab("setup")
     else if (action === "back") goBack()
-    else if (action === "search") focusSearch()
-    else if (action === "scope") toggleSearchScope()
+    else if (action === "search-input") focusSearch()
+    else if (action === "filter") focusLocalFilter()
     else if (action === "help") toggleShortcutHelp()
     else if (action === "refresh") refreshButton.clicked()
     else if (action === "close") requestClose()
@@ -1173,7 +1171,7 @@ Item {
       libraryType = action.substring(8)
       if (service) service.loadLibrary(libraryType, false)
     } else if (action.indexOf("search-") === 0) {
-      searchType = action.substring(7)
+      selectSearchType(action.substring(7))
     } else if (action === "playlist-play" && service && service.selectedPlaylist)
       activateMedia(service.selectedPlaylist)
     else if (action === "playlist-more" && service && service.selectedPlaylist)
@@ -1409,7 +1407,9 @@ Item {
         || shortcutHelpPopup.opened || lyricsInstallPopup.opened)
       return false
 
-    if (unifiedSearchField.activeFocus && tabbing) {
+    var activeCollection = pageCollection()
+    if (tabbing && ((globalSearchField && globalSearchField.activeFocus)
+        || (activeCollection && activeCollection.filterFocused))) {
       var searchDest = tabDestination(shift || key === Qt.Key_Backtab)
       releaseSearchFocus()
       applyCursorDestination(searchDest)
@@ -1519,14 +1519,16 @@ Item {
   function primaryNavigationShortcut(id) {
     if (id === "home") return "Alt+Shift+H"
     if (id === "queue") return "Alt+Shift+Q"
+    if (id === "search") return "Ctrl+K or /"
     return ""
   }
 
   function shortcutRows() {
     return [
-      { section: "SEARCH", action: "Focus search", keys: "Ctrl+F or /" },
-      { action: "Toggle this area / all of Spotify", keys: "Ctrl+F or /" },
-      { action: "Leave search", keys: "Esc" },
+      { section: "SEARCH", action: "Search all of Spotify", keys: "Ctrl+K or /" },
+      { action: "Choose Search or Library category", keys: "Ctrl+1 … Ctrl+7" },
+      { action: "Filter this collection", keys: "Ctrl+F" },
+      { action: "Leave a search or filter field", keys: "Esc" },
       { section: "NAVIGATION", action: "Go back", keys: "Alt+Left" },
       { action: "Leave Settings or Devices", keys: "Esc" },
       { action: "Open Settings", keys: "Ctrl+," },
@@ -1559,153 +1561,63 @@ Item {
     ]
   }
 
-  function scopedSearchText() {
-    if (currentTab === "home") return homeFilter
-    if (currentTab === "discover") return discoverFilter
-    if (currentTab === "library") return libraryFilter
-    if (currentTab === "playlists") return playlistFilter
-    if (currentTab === "queue") return queueFilter
-    if (currentTab === "detail") return activeSearchScope.mode === "artist"
-      ? artistSearchText : detailFilter
-    return ""
-  }
-
-  function setScopedSearchText(value) {
-    var text = String(value || "")
-    if (currentTab === "home") homeFilter = text
-    else if (currentTab === "discover") discoverFilter = text
-    else if (currentTab === "library") libraryFilter = text
-    else if (currentTab === "playlists") playlistFilter = text
-    else if (currentTab === "queue") queueFilter = text
-    else if (currentTab === "detail") {
-      if (activeSearchScope.mode === "artist") artistSearchText = text
-      else detailFilter = text
-    }
-  }
-
-  function unifiedSearchText() {
-    return activeSearchScope.available && searchInContext
-      ? scopedSearchText() : searchText
-  }
-
-  function searchScopeButtonText() {
-    var label = activeSearchScope && activeSearchScope.label
-      ? String(activeSearchScope.label) : "this area"
-    if (label.length > 24) label = label.substring(0, 23) + "…"
-    return "In " + label
-  }
-
-  function syncUnifiedSearchField() {
-    if (!unifiedSearchField) return
-    var next = unifiedSearchText()
-    if (unifiedSearchField.text !== next)
-      unifiedSearchField.text = next
-  }
-
-  function runUnifiedSearch() {
-    unifiedSearchDelay.stop()
+  function runGlobalSearch() {
+    globalSearchDelay.stop()
     if (!service) return
-    if (activeSearchScope.available && searchInContext) {
-      if (activeSearchScope.mode === "artist")
-        service.findArtistMusic(artistSearchText)
-      return
-    }
-    if (currentTab !== "search" && searchText.trim() !== "")
-      universalSearchActive = true
     if (searchText.trim() === "") service.clearSearch()
-    else service.search(searchText)
+    else service.search(searchText, searchType)
   }
 
-  function editUnifiedSearch(value) {
-    unifiedSearchDelay.stop()
+  function selectSearchType(type) {
+    var value = Api.normalizedSearchType(type)
+    if (searchType === value) return
+    searchType = value
+    if (service && searchText.trim() !== "" && currentTab === "search")
+      service.search(searchText, searchType)
+  }
+
+  function editGlobalSearch(value) {
+    globalSearchDelay.stop()
     var text = String(value || "")
-    if (activeSearchScope.available && searchInContext) {
-      setScopedSearchText(text)
-      if (activeSearchScope.mode === "artist") {
-        if (text.trim() === "") {
-          if (service) service.findArtistMusic("")
-        } else {
-          if (service) service.cancelArtistCatalog()
-          unifiedSearchDelay.restart()
-        }
-      }
-      return
-    }
     searchText = text
     if (!service) return
-    if (text.trim() === "") {
-      service.clearSearch()
-      if (currentTab !== "search") universalSearchActive = false
-    } else {
+    if (text.trim() === "") service.clearSearch()
+    else {
       service.cancelSearch(false)
-      unifiedSearchDelay.restart()
+      globalSearchDelay.restart()
     }
   }
 
-  function clearUnifiedSearch() {
-    unifiedSearchDelay.stop()
-    if (activeSearchScope.available && searchInContext) {
-      setScopedSearchText("")
-      if (activeSearchScope.mode === "artist" && service)
-        service.findArtistMusic("")
-    } else {
-      searchText = ""
-      if (service) service.clearSearch()
-      if (currentTab !== "search") {
-        universalSearchActive = false
-        if (activeSearchScope.available) {
-          searchInContext = true
-          setScopedSearchText("")
-          if (activeSearchScope.mode === "artist" && service)
-            service.findArtistMusic("")
-        }
-      }
-    }
-    syncUnifiedSearchField()
-  }
-
-  function toggleSearchScope() {
-    if (!activeSearchScope.available) return
-    unifiedSearchDelay.stop()
-    var text = unifiedSearchText()
-    if (searchInContext) {
-      searchText = text
-      searchInContext = false
-      universalSearchActive = true
-      if (service) {
-        if (searchText.trim() === "") service.clearSearch()
-        else service.search(searchText)
-      }
-    } else {
-      searchInContext = true
-      universalSearchActive = false
-      setScopedSearchText(text)
-      if (service) {
-        service.cancelSearch(false)
-        if (activeSearchScope.mode === "artist")
-          service.findArtistMusic(text)
-      }
-    }
-    syncUnifiedSearchField()
-    Qt.callLater(function() {
-      unifiedSearchField.selectAll()
-      unifiedSearchField.forceActiveFocus()
-    })
+  function clearGlobalSearch() {
+    globalSearchDelay.stop()
+    searchText = ""
+    if (service) service.clearSearch()
+    if (globalSearchField) globalSearchField.forceActiveFocus()
   }
 
   function focusSearch() {
-    if (!unifiedSearchBar.visible) return
-    unifiedSearchField.selectAll()
-    unifiedSearchField.forceActiveFocus()
+    if (currentTab !== "search") chooseTab("search")
+    Qt.callLater(function() {
+      if (!globalSearchField) return
+      globalSearchField.selectAll()
+      globalSearchField.forceActiveFocus()
+    })
   }
 
   function activateSearch() {
-    if (!unifiedSearchBar.visible) return
-    var action = Api.searchShortcutAction(unifiedSearchField.activeFocus,
-      activeSearchScope.available, searchInContext)
-    if (action === "toggle-scope" || action === "enter-context")
-      toggleSearchScope()
-    else focusSearch()
+    focusSearch()
+  }
+
+  function localFilterAvailable() {
+    return Api.collectionFilterAvailable(currentTab,
+      service ? service.detailItem : null,
+      service ? service.selectedPlaylist : null)
+  }
+
+  function focusLocalFilter() {
+    var collection = pageCollection()
+    if (!localFilterAvailable() || !collection || !collection.focusFilter) return
+    collection.focusFilter()
   }
 
   function seekBy(seconds) {
@@ -1763,9 +1675,6 @@ Item {
     if (requestedDetail) {
       currentTab = "detail"
       navigationStack = []
-      searchInContext = true
-      universalSearchActive = false
-      artistSearchText = ""
       detailFilter = ""
     } else if (["home", "discover", "search", "library", "playlists", "queue", "devices", "setup"].indexOf(requestedTab) >= 0)
       currentTab = requestedTab
@@ -1773,8 +1682,6 @@ Item {
       openedForLogin = false
     } else if (!sessionPending) {
       currentTab = "login"
-      universalSearchActive = false
-      searchInContext = true
       openedForLogin = true
     }
     closingFromHost = false
@@ -1790,8 +1697,9 @@ Item {
       service.activate(currentTab)
       if (currentTab === "detail" && requestedDetail)
         service.openDetail(requestedDetail)
-      if (currentTab === "search" && searchText && service.searchQuery !== searchText)
-        service.search(searchText)
+      if (currentTab === "search" && Api.searchNeedsLoad(searchText,
+          service.searchQuery, service.searchLoadedTypes[searchType]))
+        service.search(searchText, searchType)
     }
     Qt.callLater(function() {
       focusScope.forceActiveFocus()
@@ -1835,17 +1743,21 @@ Item {
       openedForLogin = true
       return
     }
+    var enteringSearch = currentTab !== "search" && tab === "search"
     disarmEscapeClose()
-    unifiedSearchDelay.stop()
-    if (showingUniversalSearch && tab !== "search" && service) service.cancelSearch(false)
-    searchInContext = true
-    universalSearchActive = false
+    globalSearchDelay.stop()
+    if (currentTab === "search" && tab !== "search" && service)
+      service.cancelSearch(false)
     rememberCurrentContentTab()
     currentTab = tab
     if (tab !== "detail") navigationStack = []
     openedForLogin = false
-    if (service) service.openView(tab, false)
-    syncUnifiedSearchField()
+    if (service) {
+      service.openView(tab, false)
+      if (enteringSearch && Api.searchNeedsLoad(searchText,
+          service.searchQuery, service.searchLoadedTypes[searchType]))
+        service.search(searchText, searchType)
+    }
   }
 
   function openLastRadio() {
@@ -1857,7 +1769,8 @@ Item {
   function primaryNavigationItems() {
     var items = [
       { id: "home", label: "For you", icon: "󰎆" },
-      { id: "discover", label: "Discover", icon: "󰲸" }
+      { id: "discover", label: "Discover", icon: "󰲸" },
+      { id: "search", label: "Search", icon: "󰍉" }
     ]
     if (service && service.lastRadioPlaylist) items.push({
       id: "radio",
@@ -1879,16 +1792,12 @@ Item {
     if (sessionPending) return
     if (!accountConnected) {
       currentTab = "login"
-      universalSearchActive = false
-      searchInContext = true
       openedForLogin = true
       return
     }
     if (openedForLogin || currentTab === "login") {
       openedForLogin = false
       currentTab = "home"
-      universalSearchActive = false
-      searchInContext = true
       if (service) service.openView("home", false)
     }
   }
@@ -1925,10 +1834,10 @@ Item {
 
   function pageComponent() {
     if (currentTab === "login") return loginPage
-    if (showingUniversalSearch) return searchPage
     if (currentTab === "setup") return setupPage
     if (currentTab === "home") return homePage
     if (currentTab === "discover") return discoverPage
+    if (currentTab === "search") return searchPage
     if (currentTab === "library") return libraryPage
     if (currentTab === "playlists") return playlistsPage
     if (currentTab === "detail") return detailPage
@@ -1939,7 +1848,7 @@ Item {
 
   function pageTitle() {
     if (currentTab === "login") return "Log in to Spotify"
-    if (showingUniversalSearch) return "Search Spotify"
+    if (currentTab === "search") return "Search Spotify"
     if (currentTab === "home") return "For you"
     if (currentTab === "discover") return "Discover"
     if (currentTab === "library") return "Your Library"
@@ -1948,7 +1857,6 @@ Item {
     if (currentTab === "devices") return "Spotify Connect"
     if (currentTab === "setup") return "Settings"
     if (currentTab === "detail") {
-      if (artistScopedSearchActive) return "Search in " + service.detailItem.name
       return service && service.detailItem ? service.detailItem.name : "Loading…"
     }
     return "Search"
@@ -1956,9 +1864,8 @@ Item {
 
   function pageSubtitle() {
     if (currentTab === "login") return "Connect your Spotify account to get started"
-    if (showingUniversalSearch) return activeSearchScope.available
-      ? "Searching everywhere — enable the area checkmark to narrow the results"
-      : "Songs, artists, albums, playlists, podcasts and audiobooks"
+    if (currentTab === "search")
+      return "Songs, artists, albums, playlists, podcasts and audiobooks"
     if (currentTab === "home") return "Recently played and your personal favorites"
     if (currentTab === "discover") return "Personal mixes and fresh music from Spotify"
     if (currentTab === "library") return "Songs, albums, artists, podcasts and audiobooks"
@@ -1967,8 +1874,6 @@ Item {
     if (currentTab === "devices") return "Speakers and players"
     if (currentTab === "setup") return "Account, playback and app preferences"
     if (currentTab === "detail") {
-      if (artistScopedSearchActive)
-        return "Songs, albums and playlists matching “" + artistSearchText.trim() + "”"
       return service && service.detailItem
         ? Api.spotifyTypeLabel(service.detailItem.type) : "Spotify item"
     }
@@ -2927,6 +2832,15 @@ Item {
         root.shortcutModeLatched = false
       }
       Keys.onShortcutOverride: function(event) {
+        if ((root.currentTab === "search" || root.currentTab === "library")
+            && !root.shortcutsBlocked
+            && (event.modifiers & Qt.ControlModifier)
+            && !(event.modifiers & (Qt.AltModifier | Qt.MetaModifier))
+            && root.categoryTypeAtPosition(
+              root.categoryPositionForKey(event.key))) {
+          event.accepted = true
+          return
+        }
         if (root.isHintModifierKey(event.key) && !root.typingInField) {
           root.considerShortcutModeKey(event, true)
           event.accepted = true
@@ -2945,6 +2859,10 @@ Item {
           event.accepted = true
       }
       Keys.onPressed: function(event) {
+        if (root.handleCategoryKey(event)) {
+          event.accepted = true
+          return
+        }
         root.considerShortcutModeKey(event, true)
         if (root.isHintModifierKey(event.key) && !root.typingInField) {
           event.accepted = true
@@ -2989,7 +2907,7 @@ Item {
 
       Shortcut {
         sequence: "/"
-        enabled: unifiedSearchBar.visible && !root.shortcutsBlocked
+        enabled: root.currentTab !== "login" && !root.shortcutsBlocked
           && !root.textInputFocused()
         onActivated: {
           root.latchShortcutMode(sequence)
@@ -2997,13 +2915,56 @@ Item {
         }
       }
       Shortcut {
-        sequence: "Ctrl+F"
-        enabled: unifiedSearchBar.visible && !root.shortcutsBlocked
-          && !unifiedSearchField.activeFocus
+        sequence: "Ctrl+K"
+        enabled: root.currentTab !== "login" && !root.shortcutsBlocked
         onActivated: {
           root.latchShortcutMode(sequence)
           root.activateSearch()
         }
+      }
+      Shortcut {
+        sequence: "Ctrl+F"
+        enabled: root.localFilterAvailable() && !root.shortcutsBlocked
+          && !root.textInputFocused()
+        onActivated: {
+          root.latchShortcutMode(sequence)
+          root.focusLocalFilter()
+        }
+      }
+      Shortcut {
+        sequence: "Ctrl+1"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(1))
+      }
+      Shortcut {
+        sequence: "Ctrl+2"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(2))
+      }
+      Shortcut {
+        sequence: "Ctrl+3"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(3))
+      }
+      Shortcut {
+        sequence: "Ctrl+4"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(4))
+      }
+      Shortcut {
+        sequence: "Ctrl+5"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(5))
+      }
+      Shortcut {
+        sequence: "Ctrl+6"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(6))
+      }
+      Shortcut {
+        sequence: "Ctrl+7"
+        enabled: root.currentTab === "search" && !root.shortcutsBlocked
+        onActivated: root.selectSearchType(Api.searchTypeAtShortcut(7))
       }
       Shortcut {
         sequence: "C"
@@ -3356,14 +3317,14 @@ Item {
 
               Button {
                 width: parent.width
-                text: root.compactWidth ? "" : "Liked Songs"
+                text: root.compactWidth ? "" : "Library"
                 iconText: "󰋑"
                 foreground: root.foreground
                 selected: root.currentTab === "library"
                 leftAlign: !root.compactWidth
                 focusable: false
                 hasCursor: root.cursorOn("sidebar", "nav-library")
-                tooltipText: "Liked Songs"
+                tooltipText: "Library"
                 onClicked: root.chooseTab("library")
                 onHovered: function(on) {
                   if (on) root.setPanelCursor("sidebar", "nav-library")
@@ -3606,11 +3567,9 @@ Item {
                 KeyHint { region: "header"; action: "refresh" }
                 onClicked: {
                   if (!root.service) return
-                  if (root.showingUniversalSearch) root.runUnifiedSearch()
+                  if (root.currentTab === "search") root.runGlobalSearch()
                   else if (root.currentTab === "detail" && root.service.detailItem)
-                    root.service.openDetail(root.service.detailItem,
-                      root.service.detailItem.type === "artist"
-                        ? root.artistSearchText : "")
+                    root.service.openDetail(root.service.detailItem)
                   else if (root.currentTab === "library")
                     root.service.loadLibrary(root.libraryType, false, true)
                   else root.service.refreshView(root.currentTab)
@@ -3665,114 +3624,11 @@ Item {
               }
             }
 
-            Row {
-              id: unifiedSearchBar
-              visible: root.currentTab !== "login" && root.currentTab !== "devices"
-                && root.currentTab !== "setup"
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.top: statusBanner.visible ? statusBanner.bottom : pageHeader.bottom
-              anchors.topMargin: visible ? Style.space(8) : 0
-              height: visible ? Style.space(38) : 0
-              spacing: Style.space(6)
-
-              TextField {
-                id: unifiedSearchField
-                width: searchScopeButton.visible
-                  ? Math.max(0, parent.width - searchScopeButton.width
-                    - parent.spacing)
-                  : parent.width
-                height: parent.height
-                foreground: root.foreground
-                placeholderText: root.activeSearchScope.available && root.searchInContext
-                  ? "Search in " + root.activeSearchScope.label : "Search Spotify"
-                enabled: root.service && root.service.auth.loggedIn
-                hasCursor: root.cursorOn("header", "search")
-                onTextEdited: root.editUnifiedSearch(text)
-                onAccepted: root.runUnifiedSearch()
-
-                Binding {
-                  target: unifiedSearchField
-                  property: "text"
-                  value: root.unifiedSearchText()
-                  when: !unifiedSearchField.activeFocus
-                  restoreMode: Binding.RestoreNone
-                }
-                Keys.onPressed: function(event) {
-                  var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
-                  var shift = (event.modifiers & Qt.ShiftModifier) !== 0
-                  var alt = (event.modifiers & Qt.AltModifier) !== 0
-                  if (event.key === Qt.Key_Escape) {
-                    root.latchShortcutMode()
-                    if (root.dismissSearch()) {
-                      event.accepted = true
-                      return
-                    }
-                  }
-                  if (ctrl && !shift && !alt && event.key === Qt.Key_F) {
-                    root.latchShortcutMode("Ctrl+F")
-                    root.activateSearch()
-                    event.accepted = true
-                    return
-                  }
-                  if (!ctrl && !shift && !alt
-                      && (event.key === Qt.Key_Slash || event.text === "/")) {
-                    root.latchShortcutMode("/")
-                    root.activateSearch()
-                    event.accepted = true
-                  }
-                }
-
-                PanelToolTip {
-                  visible: unifiedSearchField.hovered
-                  text: root.activeSearchScope.available
-                    ? "Search · Ctrl+F or /\nPress again to toggle this area and all of Spotify"
-                    : "Search · Ctrl+F or /"
-                }
-                KeyHint { region: "header"; action: "search"; sequences: ["/", "Ctrl+F"] }
-              }
-
-              Button {
-                id: searchScopeButton
-                visible: root.activeSearchScope.available
-                width: visible ? Math.min(parent.width * 0.4,
-                  Math.max(parent.width * 0.2, implicitWidth)) : 0
-                height: parent.height
-                clip: true
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.searchScopeButtonText()
-                iconText: root.searchInContext ? "󰄬" : "󰄱"
-                foreground: root.foreground
-                selected: root.searchInContext
-                bordered: true
-                focusable: false
-                hasCursor: root.cursorOn("header", "scope")
-                onHovered: function(on) {
-                  if (on) root.setPanelCursor("header", "scope")
-                }
-                horizontalPadding: Style.space(8)
-                tooltipText: root.searchInContext
-                  ? root.shortcutHint("Search all of Spotify", "Ctrl+F or /")
-                  : root.shortcutHint("Search only in "
-                    + root.activeSearchScope.label, "Ctrl+F or /")
-                onClicked: root.toggleSearchScope()
-                KeyHint {
-                  region: "header"
-                  action: "scope"
-                  sequences: ["/", "Ctrl+F"]
-                  active: root.shortcutHintsEnabled && root.shortcutModeLatched
-                    && !root.shortcutsBlocked
-                    && (root.shortcutHintsActive || unifiedSearchField.activeFocus)
-                }
-              }
-            }
-
             Loader {
               id: pageLoader
               anchors.left: parent.left
               anchors.right: parent.right
-              anchors.top: unifiedSearchBar.visible ? unifiedSearchBar.bottom
-                : (statusBanner.visible ? statusBanner.bottom : pageHeader.bottom)
+              anchors.top: statusBanner.visible ? statusBanner.bottom : pageHeader.bottom
               anchors.topMargin: Style.space(8)
               anchors.bottom: parent.bottom
               sourceComponent: root.pageComponent()
@@ -4284,10 +4140,10 @@ Item {
   }
 
   Timer {
-    id: unifiedSearchDelay
+    id: globalSearchDelay
     interval: Api.SEARCH_DEBOUNCE_MS
     repeat: false
-    onTriggered: root.runUnifiedSearch()
+    onTriggered: root.runGlobalSearch()
   }
 
   Timer {
@@ -4325,6 +4181,7 @@ Item {
             ]
             Button {
               required property var modelData
+              required property int index
               text: modelData.label
               iconText: modelData.icon
               foreground: root.foreground
@@ -4345,7 +4202,7 @@ Item {
           height: Math.max(40, parent.height - homeTypes.height - parent.spacing)
           service: root.service
           sourceItems: root.service ? root.service.homeItems(root.homeType) : []
-          filterText: root.homeFilter
+          filterText: ""
           showFilter: false
           showQueue: true
           showSave: true
@@ -4356,8 +4213,7 @@ Item {
           stateKey: "home:" + root.homeType
           emptyMessage: root.service && root.service.homeLoading
             ? "Loading your listening history…"
-            : (root.homeFilter.trim() ? "No matches in " + root.activeSearchScope.label + "."
-              : "No listening history is available yet.")
+            : "No listening history is available yet."
           onActivated: function(item, items, uri) {
             root.activateMedia(item, items, uri)
           }
@@ -4384,7 +4240,7 @@ Item {
         anchors.fill: parent
         service: root.service
         sourceItems: root.service ? root.service.discoverPlaylists : []
-        filterText: root.discoverFilter
+        filterText: ""
         showFilter: false
         showQueue: false
         showPlaylist: false
@@ -4396,9 +4252,8 @@ Item {
         stateKey: "discover"
         emptyMessage: root.service && root.service.discoverLoading
           ? "Finding playlists picked for you…"
-          : (root.discoverFilter.trim() ? "No matches in Discover."
-            : (root.service && root.service.discoverMessage
-            ? root.service.discoverMessage : "No discovery playlists are available yet."))
+          : (root.service && root.service.discoverMessage
+            ? root.service.discoverMessage : "No discovery playlists are available yet.")
         onActivated: function(item, items, uri) {
           root.activateMedia(item, items, uri)
         }
@@ -4421,7 +4276,7 @@ Item {
       id: detailRoot
       readonly property bool isArtist: root.service && root.service.detailItem
         && root.service.detailItem.type === "artist"
-      readonly property bool searchActive: isArtist && root.artistScopedSearchActive
+      readonly property bool searchActive: false
       readonly property bool searchLoading: root.service
         && root.service.artistCatalogLoading
       readonly property int searchResultCount: root.service
@@ -4666,7 +4521,7 @@ Item {
               Text {
                 id: artistAlbumsHeading
                 width: parent.width
-                text: root.artistSearchText.trim() ? "ALBUMS & EPS" : "TOP ALBUMS & EPS"
+                text: "TOP ALBUMS & EPS"
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -4710,7 +4565,7 @@ Item {
               Text {
                 id: artistSongsHeading
                 width: parent.width
-                text: root.artistSearchText.trim() ? "SONGS" : "TOP 10 SONGS"
+                text: "TOP 10 SONGS"
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -4811,7 +4666,7 @@ Item {
               width: Math.max(1, parent.width - Style.space(10))
               height: Math.max(30, parent.height - artistSearchStatus.height
                 - artistSearchEmpty.height - parent.spacing * 2)
-              property string queryKey: root.artistSearchText
+              property string queryKey: ""
               model: detailRoot.searchRows.length
               clip: true
               spacing: Style.space(4)
@@ -4994,7 +4849,7 @@ Item {
           contextUri: root.service && root.service.detailItem
             ? root.service.detailItem.uri : ""
           showQueue: true
-          showFilter: false
+          showFilter: true
           showSort: true
           showSave: true
           browseContexts: true
@@ -5003,6 +4858,7 @@ Item {
           reorderBusy: root.service && root.service.playlistActionBusy
           loading: root.service && root.service.detailLoading
           hasMore: root.service && root.service.detailNext !== ""
+          nextPageToken: root.service ? root.service.detailNext : ""
           restoredContentY: root.scrollFor("detail:" + (root.service && root.service.detailItem
             ? root.service.detailItem.uri : ""))
           stateKey: "detail:" + (root.service && root.service.detailItem
@@ -5042,8 +4898,23 @@ Item {
 
     Item {
       id: searchRoot
+      readonly property var items: root.service
+        ? root.service.searchItems(root.searchType) : []
+      readonly property bool initialLoading: root.service
+        && root.service.searchLoading && items.length === 0
+      readonly property string errorText: root.service
+        ? String(root.service.searchError || "") : ""
+
+      Component.onCompleted: {
+        root.globalSearchField = searchField
+        Qt.callLater(function() {
+          if (root.currentTab === "search" && root.globalSearchField)
+            root.globalSearchField.forceActiveFocus()
+        })
+      }
 
       Component.onDestruction: {
+        if (root.globalSearchField === searchField) root.globalSearchField = null
         if (root.service) root.service.cancelSearch(false)
       }
 
@@ -5052,6 +4923,68 @@ Item {
         spacing: Style.space(7)
 
         Row {
+          id: searchBox
+          width: parent.width
+          height: Style.space(42)
+          spacing: Style.space(6)
+
+          Text {
+            width: Style.space(24)
+            anchors.verticalCenter: parent.verticalCenter
+            text: "󰍉"
+            color: root.muted
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.icon
+            horizontalAlignment: Text.AlignHCenter
+          }
+
+          TextField {
+            id: searchField
+            objectName: "global-search-field"
+            width: Math.max(80, parent.width - Style.space(24)
+              - (clearSearch.visible ? clearSearch.width + parent.spacing : 0)
+              - parent.spacing)
+            height: parent.height
+            foreground: root.foreground
+            placeholderText: "Search Spotify…"
+            enabled: root.service && root.service.auth.loggedIn
+            hasCursor: root.cursorOn("page", "search-input")
+            onTextEdited: root.editGlobalSearch(text)
+            onAccepted: root.runGlobalSearch()
+
+            Binding {
+              target: searchField
+              property: "text"
+              value: root.searchText
+              when: !searchField.activeFocus
+              restoreMode: Binding.RestoreNone
+            }
+
+            Keys.onEscapePressed: function(event) {
+              root.latchShortcutMode()
+              root.releaseSearchFocus()
+              event.accepted = true
+            }
+
+            PanelToolTip {
+              visible: searchField.hovered
+              text: "Search all of Spotify · Ctrl+K or /"
+            }
+          }
+
+          Button {
+            id: clearSearch
+            height: parent.height
+            width: visible ? height : 0
+            visible: root.searchText.trim() !== ""
+            iconText: "󰅖"
+            foreground: root.foreground
+            tooltipText: "Clear search"
+            onClicked: root.clearGlobalSearch()
+          }
+        }
+
+        Flow {
           id: searchTypes
           width: parent.width
           spacing: Style.space(3)
@@ -5069,18 +5002,55 @@ Item {
 
             Button {
               required property var modelData
+              required property int index
               text: modelData.label
               foreground: root.foreground
               selected: root.searchType === modelData.type
               focusable: false
               horizontalPadding: Style.space(7)
               hasCursor: root.cursorOn("page", "search-" + modelData.type)
-              onClicked: root.searchType = modelData.type
+              onClicked: root.selectSearchType(modelData.type)
               onHovered: function(on) {
                 if (on) root.setPanelCursor("page", "search-" + modelData.type)
               }
-              KeyHint { region: "page"; action: "search-" + modelData.type }
+              KeyHint {
+                region: "page"
+                action: "search-" + modelData.type
+                sequences: [Api.searchTypeShortcut(index)]
+              }
             }
+          }
+        }
+
+        Row {
+          id: searchStatus
+          width: parent.width
+          height: visible ? Math.max(statusText.implicitHeight,
+            retrySearch.visible ? retrySearch.implicitHeight : 0) : 0
+          spacing: Style.space(7)
+          visible: root.searchText.trim() !== ""
+            && (searchRoot.initialLoading || searchRoot.errorText !== "")
+
+          Text {
+            id: statusText
+            width: Math.max(40, parent.width
+              - (retrySearch.visible ? retrySearch.width + parent.spacing : 0))
+            anchors.verticalCenter: parent.verticalCenter
+            text: searchRoot.errorText !== ""
+              ? searchRoot.errorText : "Searching…"
+            color: searchRoot.errorText !== "" ? Color.urgent : root.muted
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
+          }
+
+          Button {
+            id: retrySearch
+            visible: searchRoot.errorText !== ""
+            text: "Retry"
+            iconText: "󰑐"
+            foreground: root.foreground
+            onClicked: root.runGlobalSearch()
           }
         }
 
@@ -5122,8 +5092,11 @@ Item {
                 foreground: root.foreground
                 onClicked: {
                   root.searchText = modelData
-                  root.service.search(modelData)
-                  Qt.callLater(function() { unifiedSearchField.forceActiveFocus() })
+                  root.service.search(modelData, root.searchType)
+                  Qt.callLater(function() {
+                    if (root.globalSearchField)
+                      root.globalSearchField.forceActiveFocus()
+                  })
                 }
               }
             }
@@ -5143,10 +5116,12 @@ Item {
         MediaCollection {
           id: resultsView
           width: parent.width
-          height: Math.max(40, parent.height - searchTypes.height - parent.spacing)
-          visible: root.searchText.trim() !== ""
+          height: Math.max(40, parent.height - searchBox.height
+            - searchTypes.height - searchStatus.height - parent.spacing * 3)
+          visible: root.searchText.trim() !== "" && !searchRoot.initialLoading
+            && (searchRoot.errorText === "" || searchRoot.items.length > 0)
           service: root.service
-          sourceItems: root.service ? root.service.searchItems(root.searchType) : []
+          sourceItems: searchRoot.items
           showFilter: false
           showQueue: true
           showSave: true
@@ -5155,9 +5130,8 @@ Item {
           hasMore: root.service && root.service.searchNext(root.searchType) !== ""
           restoredContentY: root.scrollFor("search:" + root.searchType)
           stateKey: "search:" + root.searchType
-          emptyMessage: root.service && root.service.searchLoading
-            ? "Searching…" : "No " + Api.searchTypeLabel(root.searchType)
-              + " results."
+          emptyMessage: "No " + Api.searchTypeLabel(root.searchType)
+            + " found for “" + root.searchText.trim() + "”."
           onActivated: function(item, items, uri) {
             root.activateMedia(item, items, uri)
           }
@@ -5203,7 +5177,9 @@ Item {
               { type: "audiobooks", label: "Books", icon: "󰂺" }
             ]
             Button {
+              id: libraryTypeButton
               required property var modelData
+              required property int index
               text: modelData.label
               iconText: modelData.icon
               foreground: root.foreground
@@ -5217,7 +5193,11 @@ Item {
               onHovered: function(on) {
                 if (on) root.setPanelCursor("page", "library-" + modelData.type)
               }
-              KeyHint { region: "page"; action: "library-" + modelData.type }
+              KeyHint {
+                region: "page"
+                action: "library-" + modelData.type
+                sequences: [Api.searchTypeShortcut(libraryTypeButton.index)]
+              }
             }
           }
         }
@@ -5230,19 +5210,20 @@ Item {
           sourceItems: root.service ? root.service.libraryItems(root.libraryType) : []
           filterText: root.libraryFilter
           sortKey: root.librarySort
-          showFilter: false
+          showFilter: true
           showSort: true
           showQueue: true
           showSave: true
           browseContexts: true
           loading: root.service && root.service.libraryLoading(root.libraryType)
           hasMore: root.service && root.service.libraryNext(root.libraryType) !== ""
+          nextPageToken: root.service ? root.service.libraryNext(root.libraryType) : ""
           restoredContentY: root.scrollFor("library:" + root.libraryType)
           stateKey: "library:" + root.libraryType
           emptyMessage: root.service && root.service.libraryLoading(root.libraryType)
             ? "Loading your library…"
             : (root.libraryFilter.trim()
-              ? "No matches in " + root.activeSearchScope.label + "."
+              ? "No matches in this library section."
               : "No saved items in this section.")
           onActivated: function(item, items, uri) {
             root.activateMedia(item, items, uri)
@@ -5395,7 +5376,7 @@ Item {
           contextUri: root.service && root.service.selectedPlaylist
             ? root.service.selectedPlaylist.uri : ""
           showQueue: true
-          showFilter: false
+          showFilter: root.service && !!root.service.selectedPlaylist
           showSort: true
           showSave: true
           browseContexts: false
@@ -5404,6 +5385,7 @@ Item {
           reorderBusy: root.service && root.service.playlistActionBusy
           loading: root.service && root.service.playlistItemsLoading
           hasMore: root.service && root.service.playlistItemsNext !== ""
+          nextPageToken: root.service ? root.service.playlistItemsNext : ""
           emptyMessage: root.service && root.service.selectedPlaylist
             ? (root.service.playlistItemsEmptyMessage
               || "This playlist has no visible items.")
@@ -5446,8 +5428,7 @@ Item {
 
     Item {
       id: queueRoot
-      readonly property var visibleItems: Api.filteredSorted(
-        root.service ? root.service.queue : [], root.queueFilter, "default")
+      readonly property var visibleItems: root.service ? root.service.queue : []
 
       Column {
         anchors.fill: parent
@@ -5517,9 +5498,7 @@ Item {
             visible: queueList.count === 0
             text: root.service && root.service.queueLoading
               ? "Loading the queue…"
-              : (root.queueFilter.trim()
-                ? "No matching songs in the queue."
-                : "Nothing is queued to play next.")
+              : "Nothing is queued to play next."
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.body

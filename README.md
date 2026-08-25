@@ -27,18 +27,19 @@ for you, ready when you want them.
 ## Familiar from the first click
 
 The layout is inspired by the Spotify client, so there is almost nothing new
-to learn. Your library and playlists live in the sidebar, search stays at the
-top, the player stays at the bottom, and artist and album names take you
-straight to their pages.
+to learn. Search, your library, and playlists live in the sidebar, the player
+stays at the bottom, and artist and album names take you straight to their
+pages.
 
 Prefer to keep your hands on the keyboard? The whole app is designed for that
 too.
 
 | Shortcut | What it does |
 | --- | --- |
-| `Ctrl+F` or `/` | Search |
-| `Ctrl+F` or `/` again | Toggle this area / all of Spotify |
-| `Tab` / `F6` | Move between sidebar, search, the song list, and the player |
+| `Ctrl+K` or `/` | Search all of Spotify |
+| `Ctrl+1` … `Ctrl+7` | Choose categories in Search or Your Library (layout agnostic) |
+| `Ctrl+F` | Filter the current library, playlist, or detail list |
+| `Tab` / `F6` | Move between sidebar, page controls, the song list, and the player |
 | `Arrow keys` | Move to a control; Enter activates |
 | `C` | Row actions; arrows or Enter choose |
 | `Space` | Play or pause |
@@ -50,6 +51,9 @@ too.
 | `Ctrl+Shift+B` | Open the current song's album |
 | `Ctrl+/` | See every keyboard shortcut |
 | `Ctrl+H` | Hide visible shortcut hints |
+
+Collection filters automatically scan additional Spotify pages, up to 200
+loaded items, so matches are not limited to the first page.
 
 The first shortcut, Tab, or opening the player from the keyboard lights
 matching controls with the next key. Hold Ctrl, Shift, or Alt to see those
@@ -123,7 +127,8 @@ can move the widget later with Omarchy's bar controls.
 ## More music, less app
 
 - Discover Weekly, Release Radar, Daily Mixes, daylist, and more in **Discover**.
-- Browse Liked Songs, saved albums, followed artists, podcasts, and books.
+- Browse your library of liked songs, saved albums, followed artists, podcasts,
+  and books.
 - Create playlists, add songs, reorder tracks, and turn followed playlists
   into your own editable copies when Spotify makes their contents available.
 - Build a queue, start track radio, use shuffle and repeat, or set a sleep timer.

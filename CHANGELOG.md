@@ -29,9 +29,22 @@
 - Keep Ctrl+Up / Ctrl+Down volume steps on the last requested level until
   the player acknowledges them, and send at most one volume command every
   80 ms, so holding the shortcut no longer stutters or skips.
-- Wait 600 ms after the last search keystroke before calling Spotify, cancel
-  in-flight results while typing, and keep the search field’s text independent
-  of result rendering so the caret does not hitch.
+- Search the active result type after a 300 ms typing delay, cache other types
+  as they are opened, and prioritize those requests over background reads.
+  Searches now stop with a retryable inline error after eight seconds instead
+  of remaining on Loading indefinitely, including while queued or rate-limited.
+- Make Search a first-class sidebar destination with its own global field,
+  responsive result-type tabs, nearby loading and retry feedback, and a clear
+  action. Rename the broader Liked Songs destination to Library. Ctrl+K and `/`
+  open global search; Ctrl+F now only filters loaded library, playlist, and
+  list-style detail collections.
+- Add layout-aware Ctrl+1 through Ctrl+7 shortcuts for Search result categories
+  and Ctrl+1 through Ctrl+6 for Your Library sections (including the unshifted
+  AZERTY number row), and make
+  Escape reliably leave global search and collection-filter fields without
+  deleting their text.
+- Let Ctrl+F filters scan subsequent Library, playlist, and detail pages
+  automatically, with bounded loading feedback and token-aware error stopping.
 
 - Use the Omarchy theme muted color for captions, timestamps, and inactive
   icons, so light themes keep secondary text quiet.

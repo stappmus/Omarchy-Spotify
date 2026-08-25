@@ -22,13 +22,20 @@ Item {
   property bool browseContexts: true
   property bool loading: false
   property bool hasMore: false
+  property string nextPageToken: ""
+  property int filterScanLimit: Api.COLLECTION_FILTER_SCAN_LIMIT
+  property string autoFilterTerm: ""
+  property string lastAutoPageToken: ""
+  property bool autoFilterPaging: false
   property string emptyMessage: "Nothing here yet."
   property real restoredContentY: 0
   property string stateKey: ""
   property bool restoreApplied: false
   property bool keyboardSortSelected: false
+  property bool keyboardFilterSelected: false
   property bool keyboardMoreSelected: false
   property string keyboardSortHint: ""
+  property string keyboardFilterHint: ""
   property string keyboardMoreHint: ""
   property string keyboardListHint: ""
   property bool keyboardAtList: false
@@ -44,6 +51,7 @@ Item {
   property string keyboardListId: "list"
   readonly property int listCurrentIndex: mediaList.currentIndex
   readonly property int listCount: mediaList.count
+  readonly property bool filterFocused: filterField.activeFocus
   property bool allowReorder: false
   property bool reorderBusy: false
   property int dragSourceIndex: -1
@@ -70,6 +78,46 @@ Item {
   signal reorderRequested(int sourceIndex, int destinationIndex)
   signal loadMoreRequested()
   signal viewStateChanged(string filterText, string sortKey, real contentY)
+
+  function scheduleFilterPaging() {
+    var term = String(filterText || "").trim().toLowerCase()
+    if (term !== autoFilterTerm) {
+      autoFilterTerm = term
+      lastAutoPageToken = ""
+      autoFilterPaging = false
+    }
+    filterPageTimer.stop()
+    if (term !== "") filterPageTimer.restart()
+  }
+
+  function requestNextFilterPage() {
+    if (!Api.collectionFilterShouldLoadMore(filterText, loading, nextPageToken,
+        lastAutoPageToken, sourceItems.length, filterScanLimit)) {
+      if (!loading) autoFilterPaging = false
+      return
+    }
+    lastAutoPageToken = nextPageToken
+    autoFilterPaging = true
+    loadMoreRequested()
+  }
+
+  onFilterTextChanged: scheduleFilterPaging()
+  onLoadingChanged: scheduleFilterPaging()
+  onNextPageTokenChanged: scheduleFilterPaging()
+  onSourceItemsChanged: scheduleFilterPaging()
+
+  Timer {
+    id: filterPageTimer
+    interval: Api.COLLECTION_FILTER_DEBOUNCE_MS
+    repeat: false
+    onTriggered: root.requestNextFilterPage()
+  }
+
+  function focusFilter() {
+    if (!showFilter) return
+    filterField.selectAll()
+    filterField.forceActiveFocus()
+  }
 
   function sortLabel() {
     if (sortKey === "name") return "Title"
@@ -299,13 +347,27 @@ Item {
           - (sortButton.visible ? sortButton.width + parent.spacing : 0)
           - countLabel.width - parent.spacing) : 0
         foreground: Color.foreground
-        placeholderText: "Filter this list"
+        placeholderText: "Filter this list…"
+        hasCursor: root.keyboardFilterSelected
         text: root.filterText
+        Keys.priority: Keys.BeforeItem
         onTextEdited: {
           root.filterText = text
           root.viewStateChanged(root.filterText, root.sortKey, mediaList.contentY)
         }
         Keys.onDownPressed: root.focusList()
+        Keys.onEscapePressed: function(event) {
+          root.focusList()
+          event.accepted = true
+        }
+        PanelToolTip {
+          visible: filterField.hovered
+          text: "Filter this collection; more pages load automatically · Ctrl+F"
+        }
+        ShortcutHint {
+          active: root.keyboardHintsActive && root.keyboardFilterHint !== ""
+          navHint: root.keyboardFilterHint
+        }
       }
 
       Button {
@@ -461,7 +523,9 @@ Item {
       anchors.horizontalCenter: parent.horizontalCenter
       height: visible ? implicitHeight : 0
       visible: root.loading || root.hasMore
-      text: root.loading ? "Loading…" : "Load more"
+      text: root.loading
+        ? (root.autoFilterPaging ? "Searching more…" : "Loading…")
+        : "Load more"
       foreground: Color.foreground
       enabled: root.hasMore && !root.loading
       hasCursor: root.keyboardMoreSelected

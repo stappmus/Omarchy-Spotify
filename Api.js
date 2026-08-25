@@ -23,6 +23,7 @@ var SCOPES = [
 ]
 
 var SEARCH_TYPES = ["track", "artist", "album", "playlist", "show", "episode", "audiobook"]
+var LIBRARY_TYPES = ["tracks", "albums", "artists", "shows", "episodes", "audiobooks"]
 var DISCOVERY_SEARCHES = [
   "Discover Weekly",
   "Release Radar",
@@ -287,11 +288,27 @@ function apiRequestIsMutating(method) {
   return value !== "GET" && value !== "HEAD"
 }
 
+function apiJobPriority(job) {
+  if (!job) return 0
+  if (apiRequestIsMutating(job.method)) return 2
+  return String(job.priority || "") === "interactive" ? 1 : 0
+}
+
 function enqueueApiJob(queue, job, preferFront) {
   var next = arrayValues(queue)
   if (!job) return next
-  if (preferFront === true || apiRequestIsMutating(job.method)) next.unshift(job)
-  else next.push(job)
+  if (preferFront === true || apiRequestIsMutating(job.method)) {
+    next.unshift(job)
+    return next
+  }
+  var priority = apiJobPriority(job)
+  if (priority <= 0) {
+    next.push(job)
+    return next
+  }
+  var index = 0
+  while (index < next.length && apiJobPriority(next[index]) >= priority) index++
+  next.splice(index, 0, job)
   return next
 }
 
@@ -500,7 +517,47 @@ function spotifyTypeLabel(type) {
 
 var MUTE_THRESHOLD = 0.001
 var UNMUTE_FLOOR = 0.05
-var SEARCH_DEBOUNCE_MS = 600
+var SEARCH_DEBOUNCE_MS = 300
+var SEARCH_REQUEST_TIMEOUT_MS = 8000
+var COLLECTION_FILTER_DEBOUNCE_MS = 300
+var COLLECTION_FILTER_SCAN_LIMIT = 200
+
+function normalizedSearchType(value) {
+  var type = String(value || "")
+  return SEARCH_TYPES.indexOf(type) >= 0 ? type : "track"
+}
+
+function searchTypeShortcut(index) {
+  var position = Math.floor(Number(index))
+  return position >= 0 && position < SEARCH_TYPES.length
+    ? "Ctrl+" + String(position + 1) : ""
+}
+
+function searchTypeAtShortcut(position) {
+  var index = Math.floor(Number(position)) - 1
+  return index >= 0 && index < SEARCH_TYPES.length ? SEARCH_TYPES[index] : ""
+}
+
+function libraryTypeAtShortcut(position) {
+  var index = Math.floor(Number(position)) - 1
+  return index >= 0 && index < LIBRARY_TYPES.length ? LIBRARY_TYPES[index] : ""
+}
+
+function searchNeedsLoad(query, activeQuery, typeLoaded) {
+  var term = String(query || "").trim()
+  return term !== "" && (String(activeQuery || "").trim() !== term
+    || typeLoaded !== true)
+}
+
+function collectionFilterShouldLoadMore(filterText, loading, nextPageToken,
+    lastRequestedToken, itemCount, scanLimit) {
+  var term = String(filterText || "").trim()
+  var token = String(nextPageToken || "")
+  var previous = String(lastRequestedToken || "")
+  var limit = Math.max(1, Math.floor(Number(scanLimit) || 0))
+  return term !== "" && loading !== true && token !== "" && token !== previous
+    && Math.max(0, Math.floor(Number(itemCount) || 0)) < limit
+}
 var VOLUME_FLUSH_MS = 80
 var SLIDER_VOLUME_ACK_TOLERANCE = 0.04
 
@@ -994,13 +1051,6 @@ function sessionRecordFromPluginSettings(source) {
   return sessionRecord(values.sessionState, values.searchHistory)
 }
 
-function searchShortcutAction(searchFocused, scopeAvailable, searchInContext) {
-  if (searchFocused === true)
-    return scopeAvailable === true ? "toggle-scope" : "focus"
-  if (scopeAvailable === true && searchInContext !== true) return "enter-context"
-  return "focus"
-}
-
 function cursorActionList(actions) {
   var list = Array.isArray(actions) ? actions : []
   var result = []
@@ -1220,22 +1270,6 @@ function listIndexAfterMove(count, current, delta) {
   return next
 }
 
-function searchEscapeAction(barVisible, searchFocused, queryText,
-    universalOverlay) {
-  if (barVisible !== true) return ""
-  if (String(queryText || "").trim() !== "" || universalOverlay === true)
-    return "dismiss"
-  if (searchFocused === true) return "blur"
-  return ""
-}
-
-function universalSearchVisible(tab, active) {
-  var area = String(tab || "")
-  return area === "search"
-    || (active === true && area !== "login" && area !== "devices"
-      && area !== "setup")
-}
-
 function isUtilityTab(tab) {
   var area = String(tab || "")
   return area === "setup" || area === "devices" || area === "login"
@@ -1255,58 +1289,12 @@ function previousContentTab(currentTab, lastContentTab) {
   return previous || "home"
 }
 
-function searchScope(tab, detailItem, selectedPlaylist, homeType, libraryType) {
+function collectionFilterAvailable(tab, detailItem, selectedPlaylist) {
   var area = String(tab || "")
-  var item = null
-  var label = ""
-  var key = ""
-  var mode = "filter"
-
-  if (area === "detail" && detailItem) {
-    item = detailItem
-    label = String(item.name || "").trim()
-    key = "detail:" + String(item.uri || item.id || "")
-    mode = item.type === "artist" ? "artist" : "filter"
-  } else if (area === "playlists" && selectedPlaylist) {
-    item = selectedPlaylist
-    label = String(item.name || "").trim()
-    key = "playlist:" + String(item.uri || item.id || "")
-  } else if (area === "home") {
-    var homeLabels = {
-      recent: "Recently played",
-      tracks: "Top songs",
-      artists: "Top artists"
-    }
-    var selectedHome = String(homeType || "recent")
-    label = homeLabels[selectedHome] || "For you"
-    key = "home:" + selectedHome
-  } else if (area === "discover") {
-    label = "Discover"
-    key = "discover"
-  } else if (area === "library") {
-    var libraryLabels = {
-      tracks: "Liked Songs",
-      albums: "Saved albums",
-      artists: "Followed artists",
-      shows: "Saved podcasts",
-      episodes: "Saved episodes",
-      audiobooks: "Saved books"
-    }
-    var selectedLibrary = String(libraryType || "tracks")
-    label = libraryLabels[selectedLibrary] || "Your Library"
-    key = "library:" + selectedLibrary
-  } else if (area === "queue") {
-    label = "Queue"
-    key = "queue"
-  }
-
-  return {
-    available: label !== "" && key !== "",
-    key: key,
-    label: label,
-    mode: mode,
-    item: item
-  }
+  if (area === "library") return true
+  if (area === "playlists") return !!selectedPlaylist
+  return area === "detail" && !!detailItem
+    && String(detailItem.type || "") !== "artist"
 }
 
 function sanitizeSearchTerm(value) {

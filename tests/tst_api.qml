@@ -167,7 +167,10 @@ TestCase {
     verify(!Api.pendingSliderVolumeShouldHold(0.5, pending, 9000))
     compare(Api.displayedSliderVolume(0.5, pending, 9000), 0.5)
     verify(!Api.pendingSliderVolumeShouldHold(0.5, null, 2000))
-    compare(Api.SEARCH_DEBOUNCE_MS, 600)
+    compare(Api.SEARCH_DEBOUNCE_MS, 300)
+    compare(Api.SEARCH_REQUEST_TIMEOUT_MS, 8000)
+    compare(Api.COLLECTION_FILTER_DEBOUNCE_MS, 300)
+    compare(Api.COLLECTION_FILTER_SCAN_LIMIT, 200)
     compare(Api.VOLUME_FLUSH_MS, 80)
   }
 
@@ -217,9 +220,12 @@ TestCase {
     verify(!Api.apiRequestIsMutating("GET"))
     var queued = Api.enqueueApiJob([], { method: "GET", id: "one" })
     queued = Api.enqueueApiJob(queued, { method: "GET", id: "two" })
+    queued = Api.enqueueApiJob(queued,
+      { method: "GET", id: "search", priority: "interactive" })
     queued = Api.enqueueApiJob(queued, { method: "PUT", id: "play" })
     compare(queued[0].id, "play")
-    compare(queued[1].id, "one")
+    compare(queued[1].id, "search")
+    compare(queued[2].id, "one")
     var skipped = Api.dequeueApiJob([
       { id: "stale", handle: { aborted: true } },
       { id: "live", handle: { aborted: false } }
@@ -227,6 +233,30 @@ TestCase {
     compare(skipped.job.id, "live")
     compare(skipped.queue.length, 0)
     compare(Api.dequeueApiJob([]).job, null)
+  }
+
+  function test_normalizedSearchType_acceptsKnownTypesAndFallsBackToTracks() {
+    compare(Api.normalizedSearchType("album"), "album")
+    compare(Api.normalizedSearchType("episode"), "episode")
+    compare(Api.normalizedSearchType("unknown"), "track")
+    compare(Api.normalizedSearchType(""), "track")
+    compare(Api.searchTypeShortcut(0), "Ctrl+1")
+    compare(Api.searchTypeShortcut(6), "Ctrl+7")
+    compare(Api.searchTypeShortcut(-1), "")
+    compare(Api.searchTypeShortcut(7), "")
+    compare(Api.searchTypeAtShortcut(1), "track")
+    compare(Api.searchTypeAtShortcut(2), "artist")
+    compare(Api.searchTypeAtShortcut(7), "audiobook")
+    compare(Api.searchTypeAtShortcut(8), "")
+    compare(Api.libraryTypeAtShortcut(1), "tracks")
+    compare(Api.libraryTypeAtShortcut(2), "albums")
+    compare(Api.libraryTypeAtShortcut(6), "audiobooks")
+    compare(Api.libraryTypeAtShortcut(7), "")
+    verify(Api.searchNeedsLoad("miles", "", false))
+    verify(Api.searchNeedsLoad(" miles ", "coltrane", true))
+    verify(Api.searchNeedsLoad("miles", "miles", false))
+    verify(!Api.searchNeedsLoad("miles", "miles", true))
+    verify(!Api.searchNeedsLoad("   ", "", false))
   }
 
   function test_playlistItemsEmptyMessage_distinguishesHiddenAndFailedLists() {
@@ -440,38 +470,37 @@ TestCase {
     compare(Api.artistNames(sequence), "One, Two")
   }
 
-  function test_searchScope_tracksTheOpenAreaAndSearchMode() {
-    var artist = Api.searchScope("detail", {
-      id: "artist-id", uri: "spotify:artist:artist-id",
-      type: "artist", name: "Björk"
-    }, null, "recent", "tracks")
-    verify(artist.available)
-    compare(artist.key, "detail:spotify:artist:artist-id")
-    compare(artist.label, "Björk")
-    compare(artist.mode, "artist")
+  function test_collectionFilterAvailable_onlyForLoadedCollections() {
+    var artist = { id: "artist-id", type: "artist", name: "Björk" }
+    var album = { id: "album-id", type: "album", name: "Debut" }
+    var playlist = { id: "playlist-id", type: "playlist", name: "Night drive" }
 
-    var playlist = Api.searchScope("playlists", null, {
-      id: "playlist-id", type: "playlist", name: "Night drive"
-    }, "recent", "tracks")
-    verify(playlist.available)
-    compare(playlist.key, "playlist:playlist-id")
-    compare(playlist.label, "Night drive")
-    compare(playlist.mode, "filter")
-
-    compare(Api.searchScope("home", null, null, "artists", "tracks").label,
-      "Top artists")
-    compare(Api.searchScope("library", null, null, "recent", "albums").label,
-      "Saved albums")
-    verify(!Api.searchScope("search", null, null, "recent", "tracks").available)
-    verify(!Api.searchScope("devices", null, null, "recent", "tracks").available)
+    verify(Api.collectionFilterAvailable("library", null, null))
+    verify(Api.collectionFilterAvailable("playlists", null, playlist))
+    verify(!Api.collectionFilterAvailable("playlists", null, null))
+    verify(Api.collectionFilterAvailable("detail", album, null))
+    verify(!Api.collectionFilterAvailable("detail", artist, null))
+    verify(!Api.collectionFilterAvailable("home", null, null))
+    verify(!Api.collectionFilterAvailable("discover", null, null))
+    verify(!Api.collectionFilterAvailable("queue", null, null))
+    verify(!Api.collectionFilterAvailable("search", null, null))
   }
 
-  function test_universalSearchVisibility_isExplicitAndHiddenFromDevices() {
-    verify(Api.universalSearchVisible("search", false))
-    verify(!Api.universalSearchVisible("setup", true))
-    verify(!Api.universalSearchVisible("setup", false))
-    verify(!Api.universalSearchVisible("devices", true))
-    verify(!Api.universalSearchVisible("login", true))
+  function test_collectionFilterPaging_isBoundedAndTokenAware() {
+    verify(Api.collectionFilterShouldLoadMore("jamiroquai", false,
+      "/next?page=2", "", 30, 200))
+    verify(!Api.collectionFilterShouldLoadMore("", false,
+      "/next?page=2", "", 30, 200))
+    verify(!Api.collectionFilterShouldLoadMore("jamiroquai", true,
+      "/next?page=2", "", 30, 200))
+    verify(!Api.collectionFilterShouldLoadMore("jamiroquai", false,
+      "", "", 30, 200))
+    verify(!Api.collectionFilterShouldLoadMore("jamiroquai", false,
+      "/next?page=2", "/next?page=2", 30, 200))
+    verify(Api.collectionFilterShouldLoadMore("jamiroquai", false,
+      "/next?page=3", "/next?page=2", 60, 200))
+    verify(!Api.collectionFilterShouldLoadMore("jamiroquai", false,
+      "/next?page=8", "/next?page=7", 200, 200))
   }
 
   function test_previousContentTab_skipsSettingsAndDevices() {
@@ -1360,15 +1389,6 @@ TestCase {
     compare(Api.shortcutModifierFlagsAfterEvent(3, true, 0, 0), 3)
   }
 
-  function test_searchShortcutAction_focusesThenTogglesScope() {
-    compare(Api.searchShortcutAction(false, true, true), "focus")
-    compare(Api.searchShortcutAction(false, true, false), "enter-context")
-    compare(Api.searchShortcutAction(true, true, true), "toggle-scope")
-    compare(Api.searchShortcutAction(true, true, false), "toggle-scope")
-    compare(Api.searchShortcutAction(false, false, true), "focus")
-    compare(Api.searchShortcutAction(true, false, false), "focus")
-  }
-
   function test_cursorNavigation_wrapsAndLeavesLists() {
     compare(Api.ensureCursorAction(["play", "next"], "shuffle", "play"), "play")
     compare(Api.ensureCursorAction(["play", "next"], "next", "play"), "next")
@@ -1658,13 +1678,4 @@ TestCase {
     compare(popup.action, "sleep-30")
   }
 
-  function test_searchEscapeAction_clearsThenReleasesFocus() {
-    compare(Api.searchEscapeAction(true, true, "query", false), "dismiss")
-    compare(Api.searchEscapeAction(true, false, "query", false), "dismiss")
-    compare(Api.searchEscapeAction(true, false, "", true), "dismiss")
-    compare(Api.searchEscapeAction(true, true, "", false), "blur")
-    compare(Api.searchEscapeAction(true, true, "   ", false), "blur")
-    compare(Api.searchEscapeAction(true, false, "", false), "")
-    compare(Api.searchEscapeAction(false, true, "query", true), "")
-  }
 }

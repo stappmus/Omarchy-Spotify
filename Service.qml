@@ -297,6 +297,9 @@ Item {
   property string localRuntimeDeviceName: "Omarchy Spotify"
   property string searchQuery: ""
   property var searchGroups: Api.searchGroups({}, 128)
+  property string searchError: ""
+  property string searchResultQuery: ""
+  property var searchLoadedTypes: ({})
   property var savedUris: ({})
   property var savedUriCheckedAt: ({})
   property var savedUriOrder: []
@@ -2601,27 +2604,43 @@ Item {
       })
   }
 
-  function search(term) {
+  function search(term, type) {
     var normalized = String(term || "").trim()
+    var value = Api.normalizedSearchType(type)
     searchQuery = normalized
-    searchLoading = normalized !== ""
     if (!normalized) {
       clearSearch()
       return
     }
+    if (searchResultQuery !== normalized) {
+      spotifyApi.cancelSearch()
+      searchResultQuery = normalized
+      searchGroups = Api.searchGroups({}, 128)
+      searchLoadedTypes = ({})
+    }
+    if (searchLoadedTypes[value] === true) {
+      searchLoading = false
+      searchError = ""
+      return
+    }
+    searchLoading = true
+    searchError = ""
     var expected = dataSerial
-    spotifyApi.search(normalized, function(groups, error) {
+    spotifyApi.search(normalized, value, function(groups, error) {
       if (expected !== root.dataSerial) return
       if (root.searchQuery !== normalized) return
       root.searchLoading = false
-      if (error) root.fail(error)
+      if (error) root.searchError = root.safeError(error)
       else {
-        root.searchGroups = groups
+        var incoming = ({})
+        incoming[value] = groups[value]
+        root.searchGroups = Api.mergeSearchGroups(root.searchGroups, incoming)
+        var loaded = Api.shallowCopy(root.searchLoadedTypes)
+        loaded[value] = true
+        root.searchLoadedTypes = loaded
+        root.searchError = ""
         root.rememberSearch(normalized)
-        var allItems = []
-        for (var i = 0; i < Api.SEARCH_TYPES.length; i++)
-          allItems = allItems.concat(root.searchItems(Api.SEARCH_TYPES[i]))
-        root.checkSavedItems(allItems)
+        root.checkSavedItems(root.searchItems(value))
       }
     })
   }
@@ -2642,10 +2661,11 @@ Item {
     if (!path || searchLoading) return
     var expected = dataSerial
     searchLoading = true
+    searchError = ""
     spotifyApi.request("GET", path, null, null, function(status, payload, error) {
       if (expected !== root.dataSerial) return
       root.searchLoading = false
-      if (error) { root.fail(error); return }
+      if (error) { root.searchError = root.safeError(error); return }
       var incoming = ({})
       incoming[value] = Api.normalizeSearchPage(payload, value, 128)
       var merged = Api.mergeSearchGroups(root.searchGroups, incoming)
@@ -2655,18 +2675,27 @@ Item {
       }
       root.searchGroups = merged
       root.checkSavedItems(root.searchItems(value))
+    }, false, null, {
+      priority: "interactive",
+      timeoutMs: Api.SEARCH_REQUEST_TIMEOUT_MS,
+      retryRateLimit: false
     })
   }
 
   function clearSearch() {
+    spotifyApi.cancelSearch()
     searchLoading = false
     searchQuery = ""
     searchGroups = Api.searchGroups({}, 128)
+    searchError = ""
+    searchResultQuery = ""
+    searchLoadedTypes = ({})
   }
 
   function cancelSearch(clearResults) {
     spotifyApi.cancelSearch()
     searchLoading = false
+    searchError = ""
     if (clearResults === true) clearSearch()
   }
 
@@ -3477,6 +3506,9 @@ Item {
     connectActivationTimer.stop()
     searchQuery = ""
     searchGroups = Api.searchGroups({}, 128)
+    searchError = ""
+    searchResultQuery = ""
+    searchLoadedTypes = ({})
     savedUris = ({})
     savedUriCheckedAt = ({})
     savedUriOrder = []
