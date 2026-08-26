@@ -44,7 +44,7 @@ Item {
     scrollSpeed: "1",
     maxBarTextWidth: "240",
     audioQuality: "320 kbps",
-    artistColumns: "songs | albums | eps"
+    artistColumns: "albums | eps | songs"
   })
   property var settings: Api.shallowCopy(defaultSettingValues)
 

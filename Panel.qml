@@ -64,7 +64,7 @@ Item {
   // Disclosure state for the width slider; deliberately not persisted.
   property bool barTextWidthExpanded: false
   property string draftAudioQuality: "320 kbps"
-  property string draftArtistColumns: "songs | albums | eps"
+  property string draftArtistColumns: "albums | eps | songs"
   readonly property var draftArtistLayout: Api.normalizedArtistColumns(draftArtistColumns)
   readonly property var draftArtistFlags: Api.artistLayoutFlags(draftArtistLayout)
   property var contextItem: null
@@ -227,7 +227,7 @@ Item {
   }
 
   function resetArtistColumns() {
-    draftArtistColumns = "songs | albums | eps"
+    draftArtistColumns = "albums | eps | songs"
     persistDraftSettings()
   }
 
@@ -6169,7 +6169,7 @@ Item {
                 text: "Restore the default layout"
                 iconText: "󰑏"
                 foreground: root.foreground
-                enabled: root.draftArtistColumns !== "songs | albums | eps"
+                enabled: root.draftArtistColumns !== "albums | eps | songs"
                 onClicked: root.resetArtistColumns()
               }
             }

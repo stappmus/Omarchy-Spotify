@@ -826,7 +826,7 @@ TestCase {
   }
 
   function test_parseArtistColumns_fallsBackAndDropsRepeats() {
-    var fallback = JSON.stringify([["songs"], ["albums"], ["eps"]])
+    var fallback = JSON.stringify([["albums"], ["eps"], ["songs"]])
     compare(JSON.stringify(Api.normalizedArtistColumns("")), fallback)
     compare(JSON.stringify(Api.normalizedArtistColumns(null)), fallback)
     compare(JSON.stringify(Api.normalizedArtistColumns("nonsense | junk")), fallback)
@@ -849,7 +849,7 @@ TestCase {
     compare(Api.formatArtistColumns(Api.normalizedArtistColumns("TOP|LP+single")),
       "songs | albums+eps")
     compare(Api.formatArtistColumns(Api.normalizedArtistColumns("garbage")),
-      "songs | albums | eps")
+      "albums | eps | songs")
   }
 
   function test_artistColumnHeading_namesWhatTheColumnHolds() {
@@ -898,6 +898,8 @@ TestCase {
   }
 
   function test_artistThisIsColumn_followsSongsAndFallsBackToFirst() {
+    // Songs trail the releases by default, so the row rides the last column.
+    compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("albums | eps | songs")), 2)
     compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("albums | songs")), 1)
     compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("songs | albums")), 0)
     compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("albums | eps")), 0)
@@ -937,7 +939,9 @@ TestCase {
   }
 
   function test_artistColumnsFromFlags_roundTripsThroughTheToggles() {
-    var specs = ["songs | albums | eps", "songs | albums+eps", "albums | eps",
+    // The toggles emit releases first and songs last, so these are the only
+    // arrangements they can produce.
+    var specs = ["albums | eps | songs", "albums+eps | songs", "albums | eps",
       "songs", "albums", "eps"]
     for (var i = 0; i < specs.length; i++) {
       var layout = Api.normalizedArtistColumns(specs[i])
@@ -949,16 +953,16 @@ TestCase {
   function test_artistColumnsFromFlags_guardsEmptyAndDanglingCombine() {
     // Everything off would leave the artist page blank.
     compare(Api.artistColumnsFromFlags({ songs: false, albums: false, eps: false }),
-      "songs | albums | eps")
-    compare(Api.artistColumnsFromFlags({}), "songs | albums | eps")
+      "albums | eps | songs")
+    compare(Api.artistColumnsFromFlags({}), "albums | eps | songs")
     // Combining needs both halves; asking for it with one is just that one.
     compare(Api.artistColumnsFromFlags({ songs: true, albums: true, eps: false,
-      combined: true }), "songs | albums")
+      combined: true }), "albums | songs")
   }
 
   function test_artistLayoutSummary_countsColumnsAndNamesThem() {
-    compare(Api.artistLayoutSummary(Api.normalizedArtistColumns("songs | albums | eps")),
-      "3 columns · TOP 10 SONGS  ·  ALBUMS  ·  EPS & SINGLES")
+    compare(Api.artistLayoutSummary(Api.normalizedArtistColumns("albums | eps | songs")),
+      "3 columns · ALBUMS  ·  EPS & SINGLES  ·  TOP 10 SONGS")
     compare(Api.artistLayoutSummary(Api.normalizedArtistColumns("albums+eps")),
       "1 column · ALBUMS & EPS")
   }

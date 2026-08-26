@@ -1934,7 +1934,7 @@ function isShortRelease(item) {
 // The parsed layout is an array of arrays, and the inner ones reach QML as
 // QVariantList, which Array.isArray rejects. Every helper below reads its
 // input through arrayValues so a column is never silently treated as empty.
-var ARTIST_COLUMNS_DEFAULT = "songs | albums | eps"
+var ARTIST_COLUMNS_DEFAULT = "albums | eps | songs"
 var ARTIST_COLUMN_LIMIT = 4
 
 function artistSectionToken(value) {
@@ -2062,13 +2062,15 @@ function artistColumnsFromFlags(flags) {
   var eps = source.eps === true
   // Combining needs both halves present; the toggle is meaningless otherwise.
   var combined = source.combined === true && albums && eps
+  // Releases lead and the top songs trail them, which is the order the columns
+  // are laid out in; the toggles never produce any other arrangement.
   var columns = []
-  if (source.songs === true) columns.push("songs")
   if (combined) columns.push("albums+eps")
   else {
     if (albums) columns.push("albums")
     if (eps) columns.push("eps")
   }
+  if (source.songs === true) columns.push("songs")
   // Turning everything off would leave an artist page with nothing on it.
   return columns.length ? columns.join(" | ") : ARTIST_COLUMNS_DEFAULT
 }
