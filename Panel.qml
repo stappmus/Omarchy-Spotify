@@ -943,7 +943,9 @@ Item {
       actions.push("detail-save", "detail-more")
     }
     if (artistCatalog) {
-      actions.push("list-songs", "list-albums", "list-eps")
+      // Cursor order follows the configured columns, left to right.
+      var listIds = Api.artistColumnListIds(service ? service.artistColumnLayout : [])
+      for (var c = 0; c < listIds.length; c++) actions.push(listIds[c])
       if (service && service.artistThisIsPlaylist) actions.push("detail-thisis")
     } else {
       var collection = pageCollection()
@@ -4657,174 +4659,118 @@ Item {
             width: parent.width
             height: parent.height
             spacing: Style.space(10)
-            // Songs, albums and EPs share the width evenly. Three columns of a
-            // half-width each would overflow the row, so derive it once here.
+            readonly property var columns: root.service
+              ? root.service.artistColumnLayout : []
+            // Columns share the width evenly, so the divisor has to follow the
+            // configured count rather than a fixed three.
             readonly property real columnWidth: Math.max(80,
-              (width - spacing * 2) / 3)
+              (width - spacing * Math.max(0, columns.length - 1))
+                / Math.max(1, columns.length))
+            readonly property int thisIsColumn: Api.artistThisIsColumn(columns)
 
-            Column {
-              width: artistLists.columnWidth
-              height: parent.height
-              spacing: Style.space(5)
+            Repeater {
+              model: artistLists.columns
 
-              Text {
-                id: artistSongsHeading
-                width: parent.width
-                text: "TOP 10 SONGS"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
+              Column {
+                id: artistColumn
+                required property var modelData
+                required property int index
+                readonly property var sections: modelData
+                readonly property bool hasSongs: sections.indexOf("songs") >= 0
+                readonly property bool hasReleases: sections.indexOf("albums") >= 0
+                  || sections.indexOf("eps") >= 0
+                readonly property bool showsThisIs: root.service
+                  && root.service.artistThisIsPlaylist
+                  && index === artistLists.thisIsColumn
+                width: artistLists.columnWidth
+                height: artistLists.height
+                spacing: Style.space(5)
 
-              MediaCollection {
-                width: parent.width
-                height: Math.max(30, parent.height - artistSongsHeading.height
-                  - artistThisIsRow.height - parent.spacing
-                  * (artistThisIsRow.visible ? 2 : 1))
-                keyboardListId: "list-songs"
-                service: root.service
-                sourceItems: root.service ? root.service.artistSongs : []
-                showFilter: false
-                showQueue: true
-                showSave: true
-                browseContexts: false
-                loading: root.service && root.service.artistSongsLoading
-                hasMore: root.service && root.service.artistSongsNext !== ""
-                emptyMessage: root.service && (root.service.artistSongsLoading
-                  || root.service.detailLoading)
-                  ? "Finding songs…" : "No matching songs."
-                onActivated: function(item, items, uri) {
-                  root.activateMedia(item, items, uri)
+                Text {
+                  id: artistColumnHeading
+                  width: parent.width
+                  text: Api.artistColumnHeading(artistColumn.sections)
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
                 }
-                onOpened: function(item) { root.openItem(item) }
-                onQueued: function(item) { if (root.service) root.service.addToQueue(item) }
-                onPlaylistRequested: function(item) { root.openPlaylistPicker(item) }
-                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-                onContextRequested: function(item, x, y, index, items, uri) {
-                  root.openMediaContext(item, x, y, items, uri, index)
-                }
-                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistSongs()
-              }
 
-              MediaRow {
-                id: artistThisIsRow
-                objectName: "artist-thisis"
-                width: parent.width
-                height: visible ? implicitHeight : 0
-                visible: root.service && root.service.artistThisIsPlaylist
-                itemData: root.service ? root.service.artistThisIsPlaylist : null
-                selected: root.cursorOn("page", "detail-thisis")
-                foreground: root.foreground
-                accent: root.accent
-                fontFamily: root.fontFamily
-                browseOnActivate: true
-                showQueue: false
-                showPlaylist: false
-                showSave: true
-                saved: root.service && root.service.isSaved(itemData)
-                onActivated: function(item) { root.activateMedia(item, [item], item.uri) }
-                onOpenRequested: function(item) { root.openItem(item) }
-                onSaveRequested: function(item) {
-                  if (root.service) root.service.toggleSaved(item)
+                MediaCollection {
+                  width: parent.width
+                  height: Math.max(30, parent.height - artistColumnHeading.height
+                    - artistThisIsRow.height - parent.spacing
+                    * (artistThisIsRow.visible ? 2 : 1))
+                  keyboardListId: Api.artistColumnListId(artistColumn.sections)
+                  service: root.service
+                  sourceItems: root.service
+                    ? Api.artistColumnItems(artistColumn.sections,
+                      root.service.artistSongs, root.service.artistLongPlays,
+                      root.service.artistEps, root.service.artistAlbums)
+                    : []
+                  showFilter: false
+                  // Each row already gates its own actions on item kind, so a
+                  // mixed column can offer both and still render correctly.
+                  showQueue: artistColumn.hasSongs
+                  showSave: true
+                  browseContexts: artistColumn.hasReleases
+                  loading: root.service
+                    && ((artistColumn.hasSongs && root.service.artistSongsLoading)
+                      || (artistColumn.hasReleases && root.service.artistAlbumsLoading))
+                  hasMore: root.service
+                    && ((artistColumn.hasSongs && root.service.artistSongsNext !== "")
+                      || (artistColumn.hasReleases && root.service.artistAlbumsNext !== ""))
+                  emptyMessage: root.service && (root.service.detailLoading
+                    || (artistColumn.hasSongs && root.service.artistSongsLoading)
+                    || (artistColumn.hasReleases && root.service.artistAlbumsLoading))
+                    ? "Finding music…"
+                    : "Nothing to show here."
+                  onActivated: function(item, items, uri) {
+                    root.activateMedia(item, items, uri)
+                  }
+                  onOpened: function(item) { root.openItem(item) }
+                  onQueued: function(item) { if (root.service) root.service.addToQueue(item) }
+                  onPlaylistRequested: function(item) { root.openPlaylistPicker(item) }
+                  onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
+                  onContextRequested: function(item, x, y, index, items, uri) {
+                    root.openMediaContext(item, x, y, items, uri, index)
+                  }
+                  onLoadMoreRequested: if (root.service)
+                    root.service.loadMoreArtistColumn(artistColumn.sections)
                 }
-                onContextRequested: function(item, sceneX, sceneY) {
-                  root.openMediaContext(item, sceneX, sceneY, [item], item.uri, 0)
-                }
-                ShortcutHint {
-                  active: root.shortcutHintsActive
-                    && root.navHintFor("page", "detail-thisis") !== ""
-                  navHint: root.navHintFor("page", "detail-thisis")
-                }
-              }
-            }
 
-            Column {
-              width: artistLists.columnWidth
-              height: parent.height
-              spacing: Style.space(5)
-
-              Text {
-                id: artistAlbumsHeading
-                width: parent.width
-                text: "ALBUMS"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-
-              MediaCollection {
-                width: parent.width
-                height: Math.max(30, parent.height - artistAlbumsHeading.height
-                  - parent.spacing)
-                keyboardListId: "list-albums"
-                service: root.service
-                sourceItems: root.service ? root.service.artistLongPlays : []
-                showFilter: false
-                showQueue: false
-                showSave: true
-                browseContexts: true
-                loading: root.service && root.service.artistAlbumsLoading
-                hasMore: root.service && root.service.artistAlbumsNext !== ""
-                emptyMessage: root.service && (root.service.artistAlbumsLoading
-                  || root.service.detailLoading)
-                  ? "Finding releases…" : "No albums."
-                onActivated: function(item, items, uri) {
-                  root.activateMedia(item, items, uri)
+                MediaRow {
+                  id: artistThisIsRow
+                  objectName: "artist-thisis"
+                  width: parent.width
+                  height: visible ? implicitHeight : 0
+                  visible: artistColumn.showsThisIs
+                  itemData: root.service ? root.service.artistThisIsPlaylist : null
+                  selected: root.cursorOn("page", "detail-thisis")
+                  foreground: root.foreground
+                  accent: root.accent
+                  fontFamily: root.fontFamily
+                  browseOnActivate: true
+                  showQueue: false
+                  showPlaylist: false
+                  showSave: true
+                  saved: root.service && root.service.isSaved(itemData)
+                  onActivated: function(item) { root.activateMedia(item, [item], item.uri) }
+                  onOpenRequested: function(item) { root.openItem(item) }
+                  onSaveRequested: function(item) {
+                    if (root.service) root.service.toggleSaved(item)
+                  }
+                  onContextRequested: function(item, sceneX, sceneY) {
+                    root.openMediaContext(item, sceneX, sceneY, [item], item.uri, 0)
+                  }
+                  ShortcutHint {
+                    active: root.shortcutHintsActive
+                      && root.navHintFor("page", "detail-thisis") !== ""
+                    navHint: root.navHintFor("page", "detail-thisis")
+                  }
                 }
-                onOpened: function(item) { root.openItem(item) }
-                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-                onContextRequested: function(item, x, y, index, items, uri) {
-                  root.openMediaContext(item, x, y, items, uri, index)
-                }
-                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistAlbums()
               }
             }
-
-            Column {
-              width: artistLists.columnWidth
-              height: parent.height
-              spacing: Style.space(5)
-
-              Text {
-                id: artistEpsHeading
-                width: parent.width
-                text: "EPS & SINGLES"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-
-              MediaCollection {
-                width: parent.width
-                height: Math.max(30, parent.height - artistEpsHeading.height
-                  - parent.spacing)
-                keyboardListId: "list-eps"
-                service: root.service
-                sourceItems: root.service ? root.service.artistEps : []
-                showFilter: false
-                showQueue: false
-                showSave: true
-                browseContexts: true
-                loading: root.service && root.service.artistAlbumsLoading
-                hasMore: root.service && root.service.artistAlbumsNext !== ""
-                emptyMessage: root.service && (root.service.artistAlbumsLoading
-                  || root.service.detailLoading)
-                  ? "Finding releases…" : "No EPs or singles."
-                onActivated: function(item, items, uri) {
-                  root.activateMedia(item, items, uri)
-                }
-                onOpened: function(item) { root.openItem(item) }
-                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-                onContextRequested: function(item, x, y, index, items, uri) {
-                  root.openMediaContext(item, x, y, items, uri, index)
-                }
-                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistAlbums()
-              }
-            }
-
           }
 
         }

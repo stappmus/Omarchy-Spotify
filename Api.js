@@ -1922,6 +1922,123 @@ function isShortRelease(item) {
   return String((item && item.releaseType) || "").toLowerCase() === "single"
 }
 
+// The artist page is laid out from a spec string so one setting can express
+// both how many columns there are and what each holds: columns are separated
+// by "|", and the sections inside a column are joined by "+". "songs | albums
+// | eps" is three columns; "songs | albums+eps" merges the releases into one;
+// "albums | eps" drops the top songs entirely.
+var ARTIST_COLUMNS_DEFAULT = "songs | albums | eps"
+var ARTIST_COLUMN_LIMIT = 4
+
+function artistSectionToken(value) {
+  var token = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+  if (!token) return ""
+  if (["songs", "song", "tracks", "track", "top", "top10", "topsongs",
+    "toptracks"].indexOf(token) >= 0) return "songs"
+  if (["albums", "album", "lp", "lps", "records"].indexOf(token) >= 0) return "albums"
+  if (["eps", "ep", "singles", "single", "epsandsingles"].indexOf(token) >= 0) return "eps"
+  return ""
+}
+
+function parseArtistColumns(spec) {
+  var text = String(spec === undefined || spec === null ? "" : spec)
+  var groups = text.split("|")
+  var columns = []
+  // A section may appear once across the whole layout. Repeating it would
+  // render the same rows in two columns and give them the same keyboard id.
+  var used = {}
+  for (var i = 0; i < groups.length && columns.length < ARTIST_COLUMN_LIMIT; i++) {
+    var parts = groups[i].split("+")
+    var sections = []
+    for (var j = 0; j < parts.length; j++) {
+      var section = artistSectionToken(parts[j])
+      if (!section || used[section]) continue
+      used[section] = true
+      sections.push(section)
+    }
+    if (sections.length) columns.push(sections)
+  }
+  return columns
+}
+
+function normalizedArtistColumns(spec) {
+  var columns = parseArtistColumns(spec)
+  return columns.length ? columns : parseArtistColumns(ARTIST_COLUMNS_DEFAULT)
+}
+
+function formatArtistColumns(columns) {
+  var rows = Array.isArray(columns) ? columns : []
+  var text = []
+  for (var i = 0; i < rows.length; i++) text.push(rows[i].join("+"))
+  return text.join(" | ")
+}
+
+function artistColumnsShow(columns, section) {
+  var rows = Array.isArray(columns) ? columns : []
+  for (var i = 0; i < rows.length; i++)
+    if (rows[i].indexOf(section) >= 0) return true
+  return false
+}
+
+function artistColumnHeading(sections) {
+  var rows = Array.isArray(sections) ? sections : []
+  var alone = rows.length === 1
+  var labels = []
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i] === "songs") labels.push(alone ? "TOP 10 SONGS" : "SONGS")
+    else if (rows[i] === "albums") labels.push("ALBUMS")
+    else if (rows[i] === "eps") labels.push(alone ? "EPS & SINGLES" : "EPS")
+  }
+  return labels.join(" & ")
+}
+
+function artistColumnListId(sections) {
+  var rows = Array.isArray(sections) ? sections : []
+  return rows.length ? "list-" + rows.join("-") : "list"
+}
+
+function artistColumnListIds(columns) {
+  var rows = Array.isArray(columns) ? columns : []
+  var ids = []
+  for (var i = 0; i < rows.length; i++) ids.push(artistColumnListId(rows[i]))
+  return ids
+}
+
+// Albums and EPs are two halves of one date-ordered discography, so a column
+// holding both takes that list whole. Concatenating the filtered halves would
+// print every album before the first EP and lose the ordering the split was
+// derived from.
+function artistColumnItems(sections, songs, albums, eps, discography) {
+  var rows = Array.isArray(sections) ? sections : []
+  var combined = rows.indexOf("albums") >= 0 && rows.indexOf("eps") >= 0
+  var releasesTaken = false
+  var items = []
+  for (var i = 0; i < rows.length; i++) {
+    var section = rows[i]
+    if (section === "songs") {
+      items = items.concat(arrayValues(songs))
+      continue
+    }
+    if (combined) {
+      if (releasesTaken) continue
+      releasesTaken = true
+      items = items.concat(arrayValues(discography))
+      continue
+    }
+    items = items.concat(arrayValues(section === "albums" ? albums : eps))
+  }
+  return items
+}
+
+// The "This Is" playlist belongs under the top songs. With songs hidden it has
+// no natural home, so it falls back to the first column.
+function artistThisIsColumn(columns) {
+  var rows = Array.isArray(columns) ? columns : []
+  for (var i = 0; i < rows.length; i++)
+    if (rows[i].indexOf("songs") >= 0) return i
+  return 0
+}
+
 function artistLongPlays(items) {
   var rows = Array.isArray(items) ? items : []
   var result = []

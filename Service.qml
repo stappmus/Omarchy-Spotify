@@ -43,7 +43,8 @@ Item {
     scrollBarText: "Off",
     scrollSpeed: "1",
     maxBarTextWidth: "240",
-    audioQuality: "320 kbps"
+    audioQuality: "320 kbps",
+    artistColumns: "songs | albums | eps"
   })
   property var settings: Api.shallowCopy(defaultSettingValues)
 
@@ -67,6 +68,10 @@ Item {
       : (quality.indexOf("160") === 0 ? 160 : 320)
   }
   readonly property string audioQuality: bitrateKbps + " kbps"
+  // Parsed once here so the panel, the fetch gating and the keyboard cursor
+  // all read the same layout.
+  readonly property var artistColumnLayout: Api.normalizedArtistColumns(
+    settings.artistColumns)
   property var searchHistory: []
   property var sessionState: ({})
   property bool sessionFileReady: false
@@ -445,7 +450,8 @@ Item {
     var source = values || {}
     var keys = ["deviceName", "idleShutdownMinutes", "showMiniPlayer",
       "shortcutPlayer", "shortcutHints", "showTrackTitle", "showArtistName",
-      "scrollBarText", "scrollSpeed", "maxBarTextWidth", "audioQuality"]
+      "scrollBarText", "scrollSpeed", "maxBarTextWidth", "audioQuality",
+      "artistColumns"]
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i]
       if (source[key] !== undefined) next[key] = source[key]
@@ -468,6 +474,10 @@ Item {
     var quality = String(next.audioQuality || "320 kbps")
     next.audioQuality = quality.indexOf("96") === 0 ? "96 kbps"
       : (quality.indexOf("160") === 0 ? "160 kbps" : "320 kbps")
+    // Round-trip the spec so a typo is rewritten to the layout actually in use
+    // rather than left in the settings field looking as though it took effect.
+    next.artistColumns = Api.formatArtistColumns(
+      Api.normalizedArtistColumns(next.artistColumns))
     return next
   }
 
@@ -2071,11 +2081,29 @@ Item {
     artistPlaylistsLoading = false
     detailMessage = ""
     detailLoading = true
-    requestArtistCatalog("album", false, expectedDetail, expectedCatalog, parent)
     if (artistCatalogQuery) {
+      requestArtistCatalog("album", false, expectedDetail, expectedCatalog, parent)
       requestArtistCatalog("track", false, expectedDetail, expectedCatalog, parent)
       requestArtistCatalog("playlist", false, expectedDetail, expectedCatalog, parent)
-    } else requestArtistTopSongs(false, expectedDetail, expectedCatalog, parent, 0)
+    } else {
+      // Browsing shows only the columns the layout asks for, so a hidden
+      // section costs no request.
+      if (Api.artistColumnsShow(artistColumnLayout, "albums")
+        || Api.artistColumnsShow(artistColumnLayout, "eps"))
+        requestArtistCatalog("album", false, expectedDetail, expectedCatalog, parent)
+      if (Api.artistColumnsShow(artistColumnLayout, "songs"))
+        requestArtistTopSongs(false, expectedDetail, expectedCatalog, parent, 0)
+    }
+    // With every section hidden nothing is in flight to clear the flag later.
+    detailLoading = artistCatalogLoading
+  }
+
+  // A column can hold more than one section, so paging it advances whichever
+  // of its sections still has a continuation URL.
+  function loadMoreArtistColumn(sections) {
+    var rows = Array.isArray(sections) ? sections : []
+    if (rows.indexOf("songs") >= 0) loadMoreArtistSongs()
+    if (rows.indexOf("albums") >= 0 || rows.indexOf("eps") >= 0) loadMoreArtistAlbums()
   }
 
   function requestArtistCatalog(type, append, expectedDetail, expectedCatalog, artist) {

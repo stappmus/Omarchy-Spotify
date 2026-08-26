@@ -805,6 +805,104 @@ TestCase {
     compare(Api.artistShortReleases(undefined).length, 0)
   }
 
+  function test_parseArtistColumns_readsCountAndContents() {
+    compare(JSON.stringify(Api.normalizedArtistColumns("songs | albums | eps")),
+      JSON.stringify([["songs"], ["albums"], ["eps"]]))
+    compare(JSON.stringify(Api.normalizedArtistColumns("songs | albums+eps")),
+      JSON.stringify([["songs"], ["albums", "eps"]]))
+    compare(JSON.stringify(Api.normalizedArtistColumns("albums | eps")),
+      JSON.stringify([["albums"], ["eps"]]))
+    compare(JSON.stringify(Api.normalizedArtistColumns("songs")),
+      JSON.stringify([["songs"]]))
+    compare(JSON.stringify(Api.normalizedArtistColumns("songs+albums+eps")),
+      JSON.stringify([["songs", "albums", "eps"]]))
+  }
+
+  function test_parseArtistColumns_acceptsAliasesAndUntidySpacing() {
+    compare(JSON.stringify(Api.normalizedArtistColumns("  TOP 10  |  LPs + Singles ")),
+      JSON.stringify([["songs"], ["albums", "eps"]]))
+    compare(JSON.stringify(Api.normalizedArtistColumns("tracks|album|ep")),
+      JSON.stringify([["songs"], ["albums"], ["eps"]]))
+  }
+
+  function test_parseArtistColumns_fallsBackAndDropsRepeats() {
+    var fallback = JSON.stringify([["songs"], ["albums"], ["eps"]])
+    compare(JSON.stringify(Api.normalizedArtistColumns("")), fallback)
+    compare(JSON.stringify(Api.normalizedArtistColumns(null)), fallback)
+    compare(JSON.stringify(Api.normalizedArtistColumns("nonsense | junk")), fallback)
+    // A repeated section would render the same rows twice under one keyboard id.
+    compare(JSON.stringify(Api.normalizedArtistColumns("albums | albums | eps")),
+      JSON.stringify([["albums"], ["eps"]]))
+    // Empty slots collapse rather than producing blank columns.
+    compare(JSON.stringify(Api.normalizedArtistColumns("songs | | eps")),
+      JSON.stringify([["songs"], ["eps"]]))
+  }
+
+  function test_parseArtistColumns_capsColumnCount() {
+    var columns = Api.normalizedArtistColumns("songs | albums | eps | songs | albums")
+    verify(columns.length <= 4)
+    compare(JSON.stringify(columns),
+      JSON.stringify([["songs"], ["albums"], ["eps"]]))
+  }
+
+  function test_formatArtistColumns_roundTripsTheSpec() {
+    compare(Api.formatArtistColumns(Api.normalizedArtistColumns("TOP|LP+single")),
+      "songs | albums+eps")
+    compare(Api.formatArtistColumns(Api.normalizedArtistColumns("garbage")),
+      "songs | albums | eps")
+  }
+
+  function test_artistColumnHeading_namesWhatTheColumnHolds() {
+    compare(Api.artistColumnHeading(["songs"]), "TOP 10 SONGS")
+    compare(Api.artistColumnHeading(["albums"]), "ALBUMS")
+    compare(Api.artistColumnHeading(["eps"]), "EPS & SINGLES")
+    compare(Api.artistColumnHeading(["albums", "eps"]), "ALBUMS & EPS")
+    compare(Api.artistColumnHeading(["songs", "albums", "eps"]), "SONGS & ALBUMS & EPS")
+  }
+
+  function test_artistColumnListId_isStableAndDistinct() {
+    compare(Api.artistColumnListId(["songs"]), "list-songs")
+    compare(Api.artistColumnListId(["albums", "eps"]), "list-albums-eps")
+    compare(JSON.stringify(Api.artistColumnListIds([["songs"], ["albums", "eps"]])),
+      JSON.stringify(["list-songs", "list-albums-eps"]))
+  }
+
+  function test_artistColumnItems_combinesReleasesInDateOrder() {
+    var songs = [{ uri: "spotify:track:one" }]
+    var albums = [{ uri: "spotify:album:lp", releaseDate: "2020-01-01" }]
+    var eps = [{ uri: "spotify:album:ep", releaseDate: "2026-01-01" }]
+    // The discography is already newest-first; the halves are not interleaved.
+    var discography = [eps[0], albums[0]]
+
+    var split = Api.artistColumnItems(["albums"], songs, albums, eps, discography)
+    compare(split.length, 1)
+    compare(split[0].uri, "spotify:album:lp")
+
+    var merged = Api.artistColumnItems(["albums", "eps"], songs, albums, eps, discography)
+    compare(merged.length, 2)
+    compare(merged[0].uri, "spotify:album:ep")
+    compare(merged[1].uri, "spotify:album:lp")
+
+    var everything = Api.artistColumnItems(["songs", "albums", "eps"], songs, albums,
+      eps, discography)
+    compare(everything.length, 3)
+    compare(everything[0].uri, "spotify:track:one")
+    compare(everything[1].uri, "spotify:album:ep")
+  }
+
+  function test_artistColumnsShow_reportsHiddenSections() {
+    var layout = Api.normalizedArtistColumns("albums | eps")
+    verify(!Api.artistColumnsShow(layout, "songs"))
+    verify(Api.artistColumnsShow(layout, "albums"))
+    verify(Api.artistColumnsShow(layout, "eps"))
+  }
+
+  function test_artistThisIsColumn_followsSongsAndFallsBackToFirst() {
+    compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("albums | songs")), 1)
+    compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("songs | albums")), 0)
+    compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("albums | eps")), 0)
+  }
+
   function test_playlistItemUris_keepsOrderAndDuplicates() {
     var uris = Api.playlistItemUris([
       { type: "track", uri: "spotify:track:one" },
