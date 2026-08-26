@@ -943,7 +943,7 @@ Item {
       actions.push("detail-save", "detail-more")
     }
     if (artistCatalog) {
-      actions.push("list-albums", "list-songs")
+      actions.push("list-songs", "list-albums", "list-eps")
       if (service && service.artistThisIsPlaylist) actions.push("detail-thisis")
     } else {
       var collection = pageCollection()
@@ -4657,60 +4657,20 @@ Item {
             width: parent.width
             height: parent.height
             spacing: Style.space(10)
+            // Songs, albums and EPs share the width evenly. Three columns of a
+            // half-width each would overflow the row, so derive it once here.
+            readonly property real columnWidth: Math.max(80,
+              (width - spacing * 2) / 3)
 
             Column {
-              width: Math.max(80, (parent.width - parent.spacing) / 2)
-              height: parent.height
-              spacing: Style.space(5)
-
-              Text {
-                id: artistAlbumsHeading
-                width: parent.width
-                text: root.artistSearchText.trim() ? "ALBUMS & EPS" : "TOP ALBUMS & EPS"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-
-              MediaCollection {
-                width: parent.width
-                height: Math.max(30, parent.height - artistAlbumsHeading.height
-                  - parent.spacing)
-                keyboardListId: "list-albums"
-                service: root.service
-                sourceItems: root.service ? root.service.artistAlbums : []
-                showFilter: false
-                showQueue: false
-                showSave: true
-                browseContexts: true
-                loading: root.service && root.service.artistAlbumsLoading
-                hasMore: root.service && root.service.artistAlbumsNext !== ""
-                emptyMessage: root.service && (root.service.artistAlbumsLoading
-                  || root.service.detailLoading)
-                  ? "Finding releases…" : "No matching albums or EPs."
-                onActivated: function(item, items, uri) {
-                  root.activateMedia(item, items, uri)
-                }
-                onOpened: function(item) { root.openItem(item) }
-                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-                onContextRequested: function(item, x, y, index, items, uri) {
-                  root.openMediaContext(item, x, y, items, uri, index)
-                }
-                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistAlbums()
-              }
-            }
-
-            Column {
-              width: Math.max(80, parent.width - parent.spacing
-                - Math.max(80, (parent.width - parent.spacing) / 2))
+              width: artistLists.columnWidth
               height: parent.height
               spacing: Style.space(5)
 
               Text {
                 id: artistSongsHeading
                 width: parent.width
-                text: root.artistSearchText.trim() ? "SONGS" : "TOP 10 SONGS"
+                text: "TOP 10 SONGS"
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -4778,6 +4738,93 @@ Item {
                 }
               }
             }
+
+            Column {
+              width: artistLists.columnWidth
+              height: parent.height
+              spacing: Style.space(5)
+
+              Text {
+                id: artistAlbumsHeading
+                width: parent.width
+                text: "ALBUMS"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              MediaCollection {
+                width: parent.width
+                height: Math.max(30, parent.height - artistAlbumsHeading.height
+                  - parent.spacing)
+                keyboardListId: "list-albums"
+                service: root.service
+                sourceItems: root.service ? root.service.artistLongPlays : []
+                showFilter: false
+                showQueue: false
+                showSave: true
+                browseContexts: true
+                loading: root.service && root.service.artistAlbumsLoading
+                hasMore: root.service && root.service.artistAlbumsNext !== ""
+                emptyMessage: root.service && (root.service.artistAlbumsLoading
+                  || root.service.detailLoading)
+                  ? "Finding releases…" : "No albums."
+                onActivated: function(item, items, uri) {
+                  root.activateMedia(item, items, uri)
+                }
+                onOpened: function(item) { root.openItem(item) }
+                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
+                onContextRequested: function(item, x, y, index, items, uri) {
+                  root.openMediaContext(item, x, y, items, uri, index)
+                }
+                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistAlbums()
+              }
+            }
+
+            Column {
+              width: artistLists.columnWidth
+              height: parent.height
+              spacing: Style.space(5)
+
+              Text {
+                id: artistEpsHeading
+                width: parent.width
+                text: "EPS & SINGLES"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              MediaCollection {
+                width: parent.width
+                height: Math.max(30, parent.height - artistEpsHeading.height
+                  - parent.spacing)
+                keyboardListId: "list-eps"
+                service: root.service
+                sourceItems: root.service ? root.service.artistEps : []
+                showFilter: false
+                showQueue: false
+                showSave: true
+                browseContexts: true
+                loading: root.service && root.service.artistAlbumsLoading
+                hasMore: root.service && root.service.artistAlbumsNext !== ""
+                emptyMessage: root.service && (root.service.artistAlbumsLoading
+                  || root.service.detailLoading)
+                  ? "Finding releases…" : "No EPs or singles."
+                onActivated: function(item, items, uri) {
+                  root.activateMedia(item, items, uri)
+                }
+                onOpened: function(item) { root.openItem(item) }
+                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
+                onContextRequested: function(item, x, y, index, items, uri) {
+                  root.openMediaContext(item, x, y, items, uri, index)
+                }
+                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistAlbums()
+              }
+            }
+
           }
 
         }

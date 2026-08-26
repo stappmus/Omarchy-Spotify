@@ -704,6 +704,107 @@ TestCase {
     compare(ep.subtitle, "Artist · EP / Single · 2026")
   }
 
+  function test_artistAlbumsPath_buildsDiscographyPathAndRejectsJunk() {
+    compare(Api.artistAlbumsPath("4Z8W4fKeB5YxbusRsdQVPb"),
+      "/artists/4Z8W4fKeB5YxbusRsdQVPb/albums")
+    compare(Api.artistAlbumsPath(""), "")
+    compare(Api.artistAlbumsPath(null), "")
+    compare(Api.artistAlbumsPath("bad/id"), "")
+    compare(Api.artistAlbumsPath("bad?id=1"), "")
+  }
+
+  function test_artistAlbumsQuery_asksForShortReleases() {
+    var query = Api.artistAlbumsQuery()
+    compare(query.include_groups, "album,single,compilation")
+    compare(query.limit, 50)
+  }
+
+  function test_normalizeAlbumPage_readsPlainPagingObject() {
+    var page = Api.normalizeAlbumPage({
+      items: [
+        { id: "one", uri: "spotify:album:one", type: "album", album_type: "single",
+          name: "Short release", release_date: "2026-01-04", total_tracks: 4,
+          artists: [{ name: "Artist" }] },
+        { id: "two", uri: "spotify:album:two", type: "album", album_type: "album",
+          name: "Full length", release_date: "2025-04-10", total_tracks: 12,
+          artists: [{ name: "Artist" }] }
+      ],
+      next: "https://api.spotify.com/v1/artists/abc/albums?offset=50&limit=50",
+      total: 2
+    })
+
+    compare(page.items.length, 2)
+    compare(page.items[0].name, "Short release")
+    compare(page.items[0].releaseType, "single")
+    compare(page.next, "https://api.spotify.com/v1/artists/abc/albums?offset=50&limit=50")
+  }
+
+  function test_releaseSortKey_padsPartialDates() {
+    compare(Api.releaseSortKey("2026"), "2026-00-00")
+    compare(Api.releaseSortKey("2026-03"), "2026-03-00")
+    compare(Api.releaseSortKey("2026-03-09"), "2026-03-09")
+    compare(Api.releaseSortKey(""), "0000-00-00")
+  }
+
+  function test_artistDiscography_sortsNewestFirstAndFoldsMarketDuplicates() {
+    var rows = Api.artistDiscography([
+      { uri: "spotify:album:a", name: "Older album", releaseType: "album",
+        releaseDate: "2019-05-02", total: 10 },
+      { uri: "spotify:album:b", name: "Newest EP", releaseType: "single",
+        releaseDate: "2026-02-11", total: 5 },
+      { uri: "spotify:album:c", name: "Newest EP", releaseType: "single",
+        releaseDate: "2026-02-11", total: 5 },
+      { uri: "spotify:album:d", name: "  newest   ep ", releaseType: "single",
+        releaseDate: "2026-02-11", total: 5 },
+      { uri: "spotify:album:e", name: "Year only", releaseType: "album",
+        releaseDate: "2019", total: 8 }
+    ])
+
+    compare(rows.length, 3)
+    compare(rows[0].name, "Newest EP")
+    compare(rows[1].name, "Older album")
+    compare(rows[2].name, "Year only")
+  }
+
+  function test_artistDiscography_keepsDistinctReleasesWithTheSameName() {
+    var rows = Api.artistDiscography([
+      { uri: "spotify:album:studio", name: "Mirage", releaseType: "album",
+        releaseDate: "2020-01-01", total: 11 },
+      { uri: "spotify:album:single", name: "Mirage", releaseType: "single",
+        releaseDate: "2019-11-01", total: 1 },
+      { uri: "spotify:album:deluxe", name: "Mirage", releaseType: "album",
+        releaseDate: "2021-01-01", total: 15 }
+    ])
+
+    compare(rows.length, 3)
+    compare(rows[0].uri, "spotify:album:deluxe")
+    compare(rows[2].uri, "spotify:album:single")
+  }
+
+  function test_artistReleaseSplit_separatesShortReleasesFromAlbums() {
+    var rows = [
+      { uri: "spotify:album:lp", name: "Full length", releaseType: "album" },
+      { uri: "spotify:album:ep", name: "Short release", releaseType: "single" },
+      { uri: "spotify:album:comp", name: "Best of", releaseType: "compilation" },
+      { uri: "spotify:album:unknown", name: "Untyped", releaseType: "" }
+    ]
+
+    var albums = Api.artistLongPlays(rows)
+    var eps = Api.artistShortReleases(rows)
+
+    compare(albums.length, 3)
+    compare(albums[0].uri, "spotify:album:lp")
+    compare(albums[1].uri, "spotify:album:comp")
+    compare(albums[2].uri, "spotify:album:unknown")
+    compare(eps.length, 1)
+    compare(eps[0].uri, "spotify:album:ep")
+  }
+
+  function test_artistReleaseSplit_toleratesMissingInput() {
+    compare(Api.artistLongPlays(null).length, 0)
+    compare(Api.artistShortReleases(undefined).length, 0)
+  }
+
   function test_playlistItemUris_keepsOrderAndDuplicates() {
     var uris = Api.playlistItemUris([
       { type: "track", uri: "spotify:track:one" },

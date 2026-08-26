@@ -1827,6 +1827,117 @@ function playlistPageState(existing, incoming, append, next) {
   }
 }
 
+// An artist's discography comes from /artists/{id}/albums, not /search.
+// Search is relevance-ranked full text: it silently drops EPs, singles and
+// compilations, and mixes in releases by similarly named artists. The
+// discography endpoint is the only call that returns the artist's own catalog,
+// and include_groups is what keeps the short releases in it.
+var ARTIST_ALBUM_GROUPS = "album,single,compilation"
+var ARTIST_ALBUM_PAGE_LIMIT = 50
+
+function artistAlbumsPath(artistId) {
+  var id = String(artistId || "").trim()
+  if (!id || !/^[A-Za-z0-9]+$/.test(id)) return ""
+  return "/artists/" + id + "/albums"
+}
+
+function artistAlbumsQuery() {
+  return {
+    include_groups: ARTIST_ALBUM_GROUPS,
+    limit: ARTIST_ALBUM_PAGE_LIMIT
+  }
+}
+
+// The discography endpoint pages a plain album list, so it has no search-style
+// { albums: { items } } envelope to unwrap.
+function normalizeAlbumPage(payload, imageWidth) {
+  return normalizePage(payload, function(value) {
+    return normalizeContext(value, imageWidth || 128)
+  })
+}
+
+// Release dates arrive at year, month or day precision. Pad the short ones so
+// plain string comparison orders them, and so a year-only release sorts inside
+// its own year rather than ahead of every dated release in it.
+function releaseSortKey(releaseDate) {
+  var value = String(releaseDate || "")
+  var parts = value.split("-")
+  var year = parts[0] || "0000"
+  var month = parts.length > 1 ? parts[1] : "00"
+  var day = parts.length > 2 ? parts[2] : "00"
+  return year + "-" + month + "-" + day
+}
+
+function sortArtistAlbums(items) {
+  var rows = Array.isArray(items) ? items.slice() : []
+  // Decorate with the original index so equal dates keep Spotify's own order
+  // instead of depending on the engine's sort stability.
+  var decorated = []
+  for (var i = 0; i < rows.length; i++)
+    decorated.push({ item: rows[i], index: i, key: releaseSortKey(rows[i] && rows[i].releaseDate) })
+  decorated.sort(function(left, right) {
+    if (left.key !== right.key) return left.key < right.key ? 1 : -1
+    return left.index - right.index
+  })
+  var result = []
+  for (var j = 0; j < decorated.length; j++) result.push(decorated[j].item)
+  return result
+}
+
+// One release exists once per market, each with its own album id, so mergeUnique
+// cannot collapse them. Fold on name plus release kind plus track count and keep
+// the first entry, which sortArtistAlbums has already made the earliest.
+function artistAlbumKey(item) {
+  var source = item || {}
+  var name = String(source.name || "").toLowerCase().replace(/\s+/g, " ").trim()
+  if (!name) return ""
+  return name + "\u0000" + String(source.releaseType || "").toLowerCase()
+    + "\u0000" + String(Number(source.total) || 0)
+}
+
+function dedupeArtistAlbums(items) {
+  var rows = Array.isArray(items) ? items : []
+  var seen = {}
+  var result = []
+  for (var i = 0; i < rows.length; i++) {
+    var key = artistAlbumKey(rows[i])
+    if (key) {
+      if (seen[key]) continue
+      seen[key] = true
+    }
+    result.push(rows[i])
+  }
+  return result
+}
+
+function artistDiscography(items) {
+  return dedupeArtistAlbums(sortArtistAlbums(items))
+}
+
+// Spotify has no EP release type: an EP is a "single" carrying more than one
+// track, which is exactly the distinction albumKind() already draws for the
+// row subtitle. Split on the same rule so the album column stays full-length
+// records and short releases get a column of their own.
+function isShortRelease(item) {
+  return String((item && item.releaseType) || "").toLowerCase() === "single"
+}
+
+function artistLongPlays(items) {
+  var rows = Array.isArray(items) ? items : []
+  var result = []
+  for (var i = 0; i < rows.length; i++)
+    if (!isShortRelease(rows[i])) result.push(rows[i])
+  return result
+}
+
+function artistShortReleases(items) {
+  var rows = Array.isArray(items) ? items : []
+  var result = []
+  for (var i = 0; i < rows.length; i++)
+    if (isShortRelease(rows[i])) result.push(rows[i])
+  return result
+}
+
 function searchTypeKey(type) {
   var value = String(type || "track")
   if (value === "artist") return "artists"

@@ -335,6 +335,10 @@ Item {
   property var artistAlbums: []
   property string artistAlbumsNext: ""
   property bool artistAlbumsLoading: false
+  // One discography request feeds both columns, so the split is derived rather
+  // than fetched twice. Paging appends to artistAlbums and both refresh.
+  readonly property var artistLongPlays: Api.artistLongPlays(artistAlbums)
+  readonly property var artistEps: Api.artistShortReleases(artistAlbums)
   property var artistSongs: []
   property string artistSongsNext: ""
   property bool artistSongsLoading: false
@@ -2077,13 +2081,20 @@ Item {
   function requestArtistCatalog(type, append, expectedDetail, expectedCatalog, artist) {
     var albums = type === "album"
     var playlists = type === "playlist"
+    // Browsing an artist pulls the real discography, which is the only source
+    // that carries every EP, single and compilation. A typed filter still goes
+    // through search, because there the user is searching text, not browsing.
+    var discographyPath = albums && !artistCatalogQuery
+      ? Api.artistAlbumsPath(artist && artist.id) : ""
     var path = append ? (albums ? artistAlbumsNext
-      : (playlists ? artistPlaylistsNext : artistSongsNext)) : "/search"
+      : (playlists ? artistPlaylistsNext : artistSongsNext))
+      : (discographyPath || "/search")
     if (!path) return
     if (albums) artistAlbumsLoading = true
     else if (playlists) artistPlaylistsLoading = true
     else artistSongsLoading = true
-    var query = append ? null : {
+    var query = null
+    if (!append) query = discographyPath ? Api.artistAlbumsQuery() : {
       q: playlists
         ? Api.artistPlaylistSearchText(artist.name, artistCatalogQuery)
         : Api.catalogSearchText(artist.name, artistCatalogQuery),
@@ -2098,16 +2109,22 @@ Item {
       else root.artistSongsLoading = false
       root.detailLoading = root.artistCatalogLoading
       if (error) { root.fail(error); return }
-      root.applyArtistCatalogPage(type, append,
-        Api.normalizeSearchPage(payload, type, 96))
+      root.applyArtistCatalogPage(type, append, discographyPath
+        ? Api.normalizeAlbumPage(payload, 96)
+        : Api.normalizeSearchPage(payload, type, 96),
+        discographyPath !== "")
     })
   }
 
-  function applyArtistCatalogPage(type, append, page) {
+  function applyArtistCatalogPage(type, append, page, discography) {
     var existing = type === "album" ? artistAlbums
       : (type === "playlist" ? artistPlaylists : artistSongs)
-    var items = (append ? Api.mergeUnique(existing, page.items) : page.items)
-      .slice(0, cacheLimit)
+    var merged = append ? Api.mergeUnique(existing, page.items) : page.items
+    // The same release comes back once per market under its own album id, so
+    // mergeUnique cannot collapse it. Fold and order across the whole merged
+    // list rather than per page, or a duplicate split across two pages survives.
+    if (discography === true) merged = Api.artistDiscography(merged)
+    var items = merged.slice(0, cacheLimit)
     var next = items.length >= cacheLimit ? "" : page.next
     if (type === "album") {
       artistAlbums = items
