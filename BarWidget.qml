@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -895,6 +894,7 @@ BarWidget {
               radius: width / 2
               color: "white"
               visible: false
+              layer.enabled: true
             }
 
             Rectangle {
@@ -917,7 +917,7 @@ BarWidget {
               Image {
                 id: popupRecordArtwork
                 anchors.fill: parent
-                source: root.vinylRecordEnabled && root.spotify
+                source: root.vinylRecordEnabled && root.popupOpen && root.spotify
                   ? root.spotify.artUrl : ""
                 sourceSize.width: 156
                 sourceSize.height: 156
@@ -927,10 +927,13 @@ BarWidget {
                 visible: false
               }
 
-              OpacityMask {
+              MultiEffect {
                 anchors.fill: parent
                 source: popupRecordArtwork
+                maskEnabled: true
                 maskSource: popupRecordMask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 1
                 visible: popupRecordArtwork.status === Image.Ready
               }
 
