@@ -64,6 +64,9 @@ Item {
   // Disclosure state for the width slider; deliberately not persisted.
   property bool barTextWidthExpanded: false
   property string draftAudioQuality: "320 kbps"
+  property string draftArtistColumns: "songs | albums | eps"
+  readonly property var draftArtistLayout: Api.normalizedArtistColumns(draftArtistColumns)
+  readonly property var draftArtistFlags: Api.artistLayoutFlags(draftArtistLayout)
   property var contextItem: null
   property var contextSourceItems: []
   property string contextSourceUri: ""
@@ -181,6 +184,7 @@ Item {
     draftScrollSpeed = service.scrollSpeed
     draftMaxBarTextWidth = service.maxBarTextWidth
     draftAudioQuality = service.audioQuality
+    draftArtistColumns = Api.formatArtistColumns(service.artistColumnLayout)
   }
 
   function saveSettings(showStatus) {
@@ -197,7 +201,8 @@ Item {
       scrollBarText: draftScrollBarText ? "On" : "Off",
       scrollSpeed: Api.normalizedScrollSpeed(draftScrollSpeed),
       maxBarTextWidth: Api.normalizedMaxBarTextWidth(draftMaxBarTextWidth),
-      audioQuality: draftAudioQuality
+      audioQuality: draftAudioQuality,
+      artistColumns: draftArtistColumns
     }
     service.persistSettings(values)
     syncDraftSettings()
@@ -206,6 +211,24 @@ Item {
 
   function persistDraftSettings() {
     saveSettings(false)
+  }
+
+  // The toggles own the layout, so each one rebuilds the whole spec rather than
+  // editing the string in place.
+  function setArtistSection(section, on) {
+    var flags = Api.artistLayoutFlags(draftArtistLayout)
+    flags[section] = on === true
+    draftArtistColumns = Api.artistColumnsFromFlags(flags)
+    persistDraftSettings()
+  }
+
+  function toggleArtistSection(section) {
+    setArtistSection(section, !draftArtistFlags[section])
+  }
+
+  function resetArtistColumns() {
+    draftArtistColumns = "songs | albums | eps"
+    persistDraftSettings()
   }
 
   function cycleAudioQuality() {
@@ -443,8 +466,9 @@ Item {
     restoreScrollPositions(state.scrollPositions)
     restoredPlaylistId = String(state.selectedPlaylistId || "")
     var restoredTab = String(state.tab || "home")
-    if (["home", "discover", "search", "library", "playlists", "detail", "queue", "devices", "setup"]
-        .indexOf(restoredTab) >= 0) currentTab = restoredTab
+    if (["home", "discover", "search", "library", "playlists", "detail", "queue",
+      "devices", "setup", "personalize"].indexOf(restoredTab) >= 0)
+      currentTab = restoredTab
     if (restoreDetail !== false && currentTab === "detail" && state.detailItem)
       service.openDetail(state.detailItem, artistSearchText)
     syncUnifiedSearchField()
@@ -1769,7 +1793,8 @@ Item {
       universalSearchActive = false
       artistSearchText = ""
       detailFilter = ""
-    } else if (["home", "discover", "search", "library", "playlists", "queue", "devices", "setup"].indexOf(requestedTab) >= 0)
+    } else if (["home", "discover", "search", "library", "playlists", "queue",
+      "devices", "setup", "personalize"].indexOf(requestedTab) >= 0)
       currentTab = requestedTab
     if (accountConnected) {
       openedForLogin = false
@@ -1929,6 +1954,7 @@ Item {
     if (currentTab === "login") return loginPage
     if (showingUniversalSearch) return searchPage
     if (currentTab === "setup") return setupPage
+    if (currentTab === "personalize") return personalizePage
     if (currentTab === "home") return homePage
     if (currentTab === "discover") return discoverPage
     if (currentTab === "library") return libraryPage
@@ -1949,6 +1975,7 @@ Item {
     if (currentTab === "queue") return "Queue"
     if (currentTab === "devices") return "Spotify Connect"
     if (currentTab === "setup") return "Settings"
+    if (currentTab === "personalize") return "Personalize"
     if (currentTab === "detail") {
       if (artistScopedSearchActive) return "Search in " + service.detailItem.name
       return service && service.detailItem ? service.detailItem.name : "Loading…"
@@ -1968,6 +1995,7 @@ Item {
     if (currentTab === "queue") return "What plays next"
     if (currentTab === "devices") return "Speakers and players"
     if (currentTab === "setup") return "Account, playback and app preferences"
+    if (currentTab === "personalize") return "Choose what each page shows"
     if (currentTab === "detail") {
       if (artistScopedSearchActive)
         return "Songs, albums and playlists matching “" + artistSearchText.trim() + "”"
@@ -3596,6 +3624,7 @@ Item {
               Button {
                 id: refreshButton
                 visible: root.currentTab !== "login" && root.currentTab !== "setup"
+                  && root.currentTab !== "personalize"
                 anchors.verticalCenter: parent.verticalCenter
                 iconText: "󰑐"
                 foreground: root.foreground
@@ -3670,7 +3699,7 @@ Item {
             Row {
               id: unifiedSearchBar
               visible: root.currentTab !== "login" && root.currentTab !== "devices"
-                && root.currentTab !== "setup"
+                && root.currentTab !== "setup" && root.currentTab !== "personalize"
               anchors.left: parent.left
               anchors.right: parent.right
               anchors.top: statusBanner.visible ? statusBanner.bottom : pageHeader.bottom
@@ -5984,6 +6013,173 @@ Item {
   }
 
   Component {
+    id: personalizePage
+
+    Item {
+      ScrollView {
+        id: personalizeScroll
+        anchors.fill: parent
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        Column {
+          width: personalizeScroll.availableWidth
+          spacing: Style.space(16)
+
+          Button {
+            text: "Back to settings"
+            iconText: "󰁍"
+            foreground: root.foreground
+            focusable: true
+            tooltipText: "Return to Settings · Esc"
+            onClicked: root.chooseTab("setup")
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            Text {
+              text: "ARTIST PAGE"
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              text: "An artist opens as a row of columns. Choose what belongs on it: the ten songs Spotify ranks highest, the full-length albums, and the EPs and singles. Every release comes from the artist's own discography, newest first."
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            BorderSurface {
+              width: parent.width
+              implicitHeight: artistLayoutSummary.implicitHeight + Style.space(16)
+              color: Style.normalFillFor(root.foreground, root.accent)
+              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
+              radius: Style.cornerRadius
+
+              Text {
+                id: artistLayoutSummary
+                anchors.fill: parent
+                anchors.margins: Style.space(8)
+                text: Api.artistLayoutSummary(root.draftArtistLayout)
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                text: "WHAT TO SHOW"
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Button {
+                text: "Top 10 songs · "
+                  + (root.draftArtistFlags.songs ? "On" : "Off")
+                iconText: "󰝚"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.songs
+                tooltipText: root.draftArtistFlags.songs
+                  ? "The artist's ten highest-ranked songs get their own column"
+                  : "Hidden, and no longer requested from Spotify"
+                onClicked: root.toggleArtistSection("songs")
+              }
+
+              Button {
+                text: "Albums · " + (root.draftArtistFlags.albums ? "On" : "Off")
+                iconText: "󰀥"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.albums
+                tooltipText: "Full-length records and compilations"
+                onClicked: root.toggleArtistSection("albums")
+              }
+
+              Button {
+                text: "EPs and singles · " + (root.draftArtistFlags.eps ? "On" : "Off")
+                iconText: "󰎈"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.eps
+                tooltipText: "Short releases, which Spotify files as singles"
+                onClicked: root.toggleArtistSection("eps")
+              }
+
+              Text {
+                width: parent.width
+                text: "Turning a section off removes its column and skips the request behind it. Switching every section off restores the default rather than leaving the page empty."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                text: "HOW TO GROUP IT"
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Button {
+                text: "Albums and EPs together · "
+                  + (root.draftArtistFlags.combined ? "On" : "Off")
+                iconText: "󰕲"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.combined
+                enabled: root.draftArtistFlags.albums && root.draftArtistFlags.eps
+                tooltipText: root.draftArtistFlags.albums && root.draftArtistFlags.eps
+                  ? "One column of every release in date order, instead of two"
+                  : "Needs both albums and EPs switched on"
+                onClicked: root.toggleArtistSection("combined")
+              }
+
+              Text {
+                width: parent.width
+                text: "Combined, the releases share one column in date order rather than listing every album before the first EP. Each row still says whether it is an album, an EP or a single."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Button {
+                text: "Restore the default layout"
+                iconText: "󰑏"
+                foreground: root.foreground
+                enabled: root.draftArtistColumns !== "songs | albums | eps"
+                onClicked: root.resetArtistColumns()
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Component {
     id: setupPage
 
     Item {
@@ -6150,6 +6346,52 @@ Item {
               }
             }
           }
+
+          PanelSeparator {
+            foreground: root.foreground
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            Text {
+              text: "PERSONALIZE"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              text: "What each page puts in front of you. These choices change the layout only — nothing is hidden from search, and no music becomes unreachable."
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            Button {
+              text: "Personalize"
+              iconText: "󰏘"
+              foreground: root.foreground
+              focusable: true
+              tooltipText: "Choose what the artist page and other views show"
+              onClicked: root.chooseTab("personalize")
+            }
+
+            Text {
+              width: parent.width
+              text: root.service
+                ? "Artist page · " + Api.artistLayoutSummary(root.service.artistColumnLayout)
+                : ""
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+          }
+
 
           PanelSeparator {
             foreground: root.foreground

@@ -903,6 +903,78 @@ TestCase {
     compare(Api.artistThisIsColumn(Api.normalizedArtistColumns("albums | eps")), 0)
   }
 
+  // Nested arrays reach QML as QVariantList, which Array.isArray rejects. The
+  // helpers must read array-likes, or every column renders empty and unlabelled.
+  function test_artistColumnHelpers_acceptArrayLikeInput() {
+    var arrayLikeSections = { length: 2, 0: "albums", 1: "eps" }
+    var arrayLikeColumns = { length: 2, 0: { length: 1, 0: "songs" },
+      1: arrayLikeSections }
+
+    compare(Api.artistColumnHeading(arrayLikeSections), "ALBUMS & EPS")
+    compare(Api.artistColumnListId(arrayLikeSections), "list-albums-eps")
+    compare(JSON.stringify(Api.artistColumnListIds(arrayLikeColumns)),
+      JSON.stringify(["list-songs", "list-albums-eps"]))
+    compare(Api.formatArtistColumns(arrayLikeColumns), "songs | albums+eps")
+    verify(Api.artistColumnsShow(arrayLikeColumns, "songs"))
+    verify(!Api.artistColumnsShow(arrayLikeColumns, "nothing"))
+    compare(Api.artistThisIsColumn(arrayLikeColumns), 0)
+
+    var items = Api.artistColumnItems(arrayLikeSections, [], [], [],
+      [{ uri: "spotify:album:one" }])
+    compare(items.length, 1)
+    compare(items[0].uri, "spotify:album:one")
+  }
+
+  function test_artistLayoutFlags_readsTheTogglesOutOfASpec() {
+    var split = Api.artistLayoutFlags(Api.normalizedArtistColumns("songs | albums | eps"))
+    verify(split.songs); verify(split.albums); verify(split.eps); verify(!split.combined)
+
+    var merged = Api.artistLayoutFlags(Api.normalizedArtistColumns("songs | albums+eps"))
+    verify(merged.combined)
+
+    var noSongs = Api.artistLayoutFlags(Api.normalizedArtistColumns("albums | eps"))
+    verify(!noSongs.songs); verify(noSongs.albums); verify(noSongs.eps)
+  }
+
+  function test_artistColumnsFromFlags_roundTripsThroughTheToggles() {
+    var specs = ["songs | albums | eps", "songs | albums+eps", "albums | eps",
+      "songs", "albums", "eps"]
+    for (var i = 0; i < specs.length; i++) {
+      var layout = Api.normalizedArtistColumns(specs[i])
+      var rebuilt = Api.artistColumnsFromFlags(Api.artistLayoutFlags(layout))
+      compare(rebuilt, specs[i], "round trip of " + specs[i])
+    }
+  }
+
+  function test_artistColumnsFromFlags_guardsEmptyAndDanglingCombine() {
+    // Everything off would leave the artist page blank.
+    compare(Api.artistColumnsFromFlags({ songs: false, albums: false, eps: false }),
+      "songs | albums | eps")
+    compare(Api.artistColumnsFromFlags({}), "songs | albums | eps")
+    // Combining needs both halves; asking for it with one is just that one.
+    compare(Api.artistColumnsFromFlags({ songs: true, albums: true, eps: false,
+      combined: true }), "songs | albums")
+  }
+
+  function test_artistLayoutSummary_countsColumnsAndNamesThem() {
+    compare(Api.artistLayoutSummary(Api.normalizedArtistColumns("songs | albums | eps")),
+      "3 columns · TOP 10 SONGS  ·  ALBUMS  ·  EPS & SINGLES")
+    compare(Api.artistLayoutSummary(Api.normalizedArtistColumns("albums+eps")),
+      "1 column · ALBUMS & EPS")
+  }
+
+  function test_previousContentTab_sendsPersonalizeBackToSettings() {
+    // Personalize is entered from Settings, so Esc lands on its parent.
+    compare(Api.previousContentTab("personalize", "library"), "setup")
+    compare(Api.previousContentTab("setup", "library"), "library")
+    compare(Api.previousContentTab("devices", "queue"), "queue")
+    compare(Api.previousContentTab("home", "library"), "")
+    // A visit to Personalize must not be remembered as the page to return to.
+    verify(Api.isUtilityTab("personalize"))
+    compare(Api.rememberContentTab("personalize"), "")
+    compare(Api.previousContentTab("setup", "personalize"), "home")
+  }
+
   function test_playlistItemUris_keepsOrderAndDuplicates() {
     var uris = Api.playlistItemUris([
       { type: "track", uri: "spotify:track:one" },

@@ -149,13 +149,6 @@
         ],
         "defaultValue": "320 kbps",
         "description": "Takes effect the next time playback starts."
-      },
-      {
-        "key": "artistColumns",
-        "type": "string",
-        "label": "Artist page columns",
-        "defaultValue": "songs | albums | eps",
-        "description": "Columns separated by |, sections joined by +. Sections are songs, albums and eps. \"songs | albums+eps\" puts every release in one column, \"albums | eps\" hides the top songs, \"songs\" shows only them. Up to four columns; each section can appear once."
       }
     ]
   }

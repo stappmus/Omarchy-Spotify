@@ -1239,6 +1239,7 @@ function universalSearchVisible(tab, active) {
 function isUtilityTab(tab) {
   var area = String(tab || "")
   return area === "setup" || area === "devices" || area === "login"
+    || area === "personalize"
 }
 
 function rememberContentTab(tab) {
@@ -1250,6 +1251,9 @@ function rememberContentTab(tab) {
 // and skips any intervening Settings/Devices visit so two Esc presses cannot
 // close the window from those menus.
 function previousContentTab(currentTab, lastContentTab) {
+  // Personalize is opened from inside Settings, so leaving it returns there
+  // rather than skipping past its parent to the last content page.
+  if (currentTab === "personalize") return "setup"
   if (currentTab !== "setup" && currentTab !== "devices") return ""
   var previous = rememberContentTab(lastContentTab)
   return previous || "home"
@@ -1927,6 +1931,9 @@ function isShortRelease(item) {
 // by "|", and the sections inside a column are joined by "+". "songs | albums
 // | eps" is three columns; "songs | albums+eps" merges the releases into one;
 // "albums | eps" drops the top songs entirely.
+// The parsed layout is an array of arrays, and the inner ones reach QML as
+// QVariantList, which Array.isArray rejects. Every helper below reads its
+// input through arrayValues so a column is never silently treated as empty.
 var ARTIST_COLUMNS_DEFAULT = "songs | albums | eps"
 var ARTIST_COLUMN_LIMIT = 4
 
@@ -1967,21 +1974,21 @@ function normalizedArtistColumns(spec) {
 }
 
 function formatArtistColumns(columns) {
-  var rows = Array.isArray(columns) ? columns : []
+  var rows = arrayValues(columns)
   var text = []
-  for (var i = 0; i < rows.length; i++) text.push(rows[i].join("+"))
+  for (var i = 0; i < rows.length; i++) text.push(arrayValues(rows[i]).join("+"))
   return text.join(" | ")
 }
 
 function artistColumnsShow(columns, section) {
-  var rows = Array.isArray(columns) ? columns : []
+  var rows = arrayValues(columns)
   for (var i = 0; i < rows.length; i++)
-    if (rows[i].indexOf(section) >= 0) return true
+    if (arrayValues(rows[i]).indexOf(section) >= 0) return true
   return false
 }
 
 function artistColumnHeading(sections) {
-  var rows = Array.isArray(sections) ? sections : []
+  var rows = arrayValues(sections)
   var alone = rows.length === 1
   var labels = []
   for (var i = 0; i < rows.length; i++) {
@@ -1993,12 +2000,12 @@ function artistColumnHeading(sections) {
 }
 
 function artistColumnListId(sections) {
-  var rows = Array.isArray(sections) ? sections : []
+  var rows = arrayValues(sections)
   return rows.length ? "list-" + rows.join("-") : "list"
 }
 
 function artistColumnListIds(columns) {
-  var rows = Array.isArray(columns) ? columns : []
+  var rows = arrayValues(columns)
   var ids = []
   for (var i = 0; i < rows.length; i++) ids.push(artistColumnListId(rows[i]))
   return ids
@@ -2009,7 +2016,7 @@ function artistColumnListIds(columns) {
 // print every album before the first EP and lose the ordering the split was
 // derived from.
 function artistColumnItems(sections, songs, albums, eps, discography) {
-  var rows = Array.isArray(sections) ? sections : []
+  var rows = arrayValues(sections)
   var combined = rows.indexOf("albums") >= 0 && rows.indexOf("eps") >= 0
   var releasesTaken = false
   var items = []
@@ -2030,12 +2037,56 @@ function artistColumnItems(sections, songs, albums, eps, discography) {
   return items
 }
 
+// The Personalize page drives the layout with plain toggles, so the spec has
+// to survive a round trip through them. Reading the flags out of a parsed
+// layout keeps the toggles honest when the spec was written by hand.
+function artistLayoutFlags(columns) {
+  var rows = arrayValues(columns)
+  var combined = false
+  for (var i = 0; i < rows.length; i++) {
+    var sections = arrayValues(rows[i])
+    if (sections.indexOf("albums") >= 0 && sections.indexOf("eps") >= 0)
+      combined = true
+  }
+  return {
+    songs: artistColumnsShow(rows, "songs"),
+    albums: artistColumnsShow(rows, "albums"),
+    eps: artistColumnsShow(rows, "eps"),
+    combined: combined
+  }
+}
+
+function artistColumnsFromFlags(flags) {
+  var source = flags || {}
+  var albums = source.albums === true
+  var eps = source.eps === true
+  // Combining needs both halves present; the toggle is meaningless otherwise.
+  var combined = source.combined === true && albums && eps
+  var columns = []
+  if (source.songs === true) columns.push("songs")
+  if (combined) columns.push("albums+eps")
+  else {
+    if (albums) columns.push("albums")
+    if (eps) columns.push("eps")
+  }
+  // Turning everything off would leave an artist page with nothing on it.
+  return columns.length ? columns.join(" | ") : ARTIST_COLUMNS_DEFAULT
+}
+
+function artistLayoutSummary(columns) {
+  var rows = arrayValues(columns)
+  var labels = []
+  for (var i = 0; i < rows.length; i++) labels.push(artistColumnHeading(rows[i]))
+  var count = rows.length
+  return count + (count === 1 ? " column · " : " columns · ") + labels.join("  ·  ")
+}
+
 // The "This Is" playlist belongs under the top songs. With songs hidden it has
 // no natural home, so it falls back to the first column.
 function artistThisIsColumn(columns) {
-  var rows = Array.isArray(columns) ? columns : []
+  var rows = arrayValues(columns)
   for (var i = 0; i < rows.length; i++)
-    if (rows[i].indexOf("songs") >= 0) return i
+    if (arrayValues(rows[i]).indexOf("songs") >= 0) return i
   return 0
 }
 
