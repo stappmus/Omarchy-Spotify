@@ -64,6 +64,9 @@ Item {
   // Disclosure state for the width slider; deliberately not persisted.
   property bool barTextWidthExpanded: false
   property string draftAudioQuality: "320 kbps"
+  property string draftArtistColumns: "albums | eps | songs"
+  readonly property var draftArtistLayout: Api.normalizedArtistColumns(draftArtistColumns)
+  readonly property var draftArtistFlags: Api.artistLayoutFlags(draftArtistLayout)
   property var contextItem: null
   property var contextSourceItems: []
   property string contextSourceUri: ""
@@ -181,6 +184,7 @@ Item {
     draftScrollSpeed = service.scrollSpeed
     draftMaxBarTextWidth = service.maxBarTextWidth
     draftAudioQuality = service.audioQuality
+    draftArtistColumns = Api.formatArtistColumns(service.artistColumnLayout)
   }
 
   function saveSettings(showStatus) {
@@ -197,7 +201,8 @@ Item {
       scrollBarText: draftScrollBarText ? "On" : "Off",
       scrollSpeed: Api.normalizedScrollSpeed(draftScrollSpeed),
       maxBarTextWidth: Api.normalizedMaxBarTextWidth(draftMaxBarTextWidth),
-      audioQuality: draftAudioQuality
+      audioQuality: draftAudioQuality,
+      artistColumns: draftArtistColumns
     }
     service.persistSettings(values)
     syncDraftSettings()
@@ -206,6 +211,24 @@ Item {
 
   function persistDraftSettings() {
     saveSettings(false)
+  }
+
+  // The toggles own the layout, so each one rebuilds the whole spec rather than
+  // editing the string in place.
+  function setArtistSection(section, on) {
+    var flags = Api.artistLayoutFlags(draftArtistLayout)
+    flags[section] = on === true
+    draftArtistColumns = Api.artistColumnsFromFlags(flags)
+    persistDraftSettings()
+  }
+
+  function toggleArtistSection(section) {
+    setArtistSection(section, !draftArtistFlags[section])
+  }
+
+  function resetArtistColumns() {
+    draftArtistColumns = "albums | eps | songs"
+    persistDraftSettings()
   }
 
   function cycleAudioQuality() {
@@ -443,8 +466,9 @@ Item {
     restoreScrollPositions(state.scrollPositions)
     restoredPlaylistId = String(state.selectedPlaylistId || "")
     var restoredTab = String(state.tab || "home")
-    if (["home", "discover", "search", "library", "playlists", "detail", "queue", "devices", "setup"]
-        .indexOf(restoredTab) >= 0) currentTab = restoredTab
+    if (["home", "discover", "search", "library", "playlists", "detail", "queue",
+      "devices", "setup", "personalize"].indexOf(restoredTab) >= 0)
+      currentTab = restoredTab
     if (restoreDetail !== false && currentTab === "detail" && state.detailItem)
       service.openDetail(state.detailItem, artistSearchText)
     syncUnifiedSearchField()
@@ -943,7 +967,9 @@ Item {
       actions.push("detail-save", "detail-more")
     }
     if (artistCatalog) {
-      actions.push("list-albums", "list-songs")
+      // Cursor order follows the configured columns, left to right.
+      var listIds = Api.artistColumnListIds(service ? service.artistColumnLayout : [])
+      for (var c = 0; c < listIds.length; c++) actions.push(listIds[c])
       if (service && service.artistThisIsPlaylist) actions.push("detail-thisis")
     } else {
       var collection = pageCollection()
@@ -1767,7 +1793,8 @@ Item {
       universalSearchActive = false
       artistSearchText = ""
       detailFilter = ""
-    } else if (["home", "discover", "search", "library", "playlists", "queue", "devices", "setup"].indexOf(requestedTab) >= 0)
+    } else if (["home", "discover", "search", "library", "playlists", "queue",
+      "devices", "setup", "personalize"].indexOf(requestedTab) >= 0)
       currentTab = requestedTab
     if (accountConnected) {
       openedForLogin = false
@@ -1927,6 +1954,7 @@ Item {
     if (currentTab === "login") return loginPage
     if (showingUniversalSearch) return searchPage
     if (currentTab === "setup") return setupPage
+    if (currentTab === "personalize") return personalizePage
     if (currentTab === "home") return homePage
     if (currentTab === "discover") return discoverPage
     if (currentTab === "library") return libraryPage
@@ -1947,6 +1975,7 @@ Item {
     if (currentTab === "queue") return "Queue"
     if (currentTab === "devices") return "Spotify Connect"
     if (currentTab === "setup") return "Settings"
+    if (currentTab === "personalize") return "Personalize"
     if (currentTab === "detail") {
       if (artistScopedSearchActive) return "Search in " + service.detailItem.name
       return service && service.detailItem ? service.detailItem.name : "Loading…"
@@ -1966,6 +1995,7 @@ Item {
     if (currentTab === "queue") return "What plays next"
     if (currentTab === "devices") return "Speakers and players"
     if (currentTab === "setup") return "Account, playback and app preferences"
+    if (currentTab === "personalize") return "Choose what each page shows"
     if (currentTab === "detail") {
       if (artistScopedSearchActive)
         return "Songs, albums and playlists matching “" + artistSearchText.trim() + "”"
@@ -3594,6 +3624,7 @@ Item {
               Button {
                 id: refreshButton
                 visible: root.currentTab !== "login" && root.currentTab !== "setup"
+                  && root.currentTab !== "personalize"
                 anchors.verticalCenter: parent.verticalCenter
                 iconText: "󰑐"
                 foreground: root.foreground
@@ -3668,7 +3699,7 @@ Item {
             Row {
               id: unifiedSearchBar
               visible: root.currentTab !== "login" && root.currentTab !== "devices"
-                && root.currentTab !== "setup"
+                && root.currentTab !== "setup" && root.currentTab !== "personalize"
               anchors.left: parent.left
               anchors.right: parent.right
               anchors.top: statusBanner.visible ? statusBanner.bottom : pageHeader.bottom
@@ -4657,124 +4688,115 @@ Item {
             width: parent.width
             height: parent.height
             spacing: Style.space(10)
+            readonly property var columns: root.service
+              ? root.service.artistColumnLayout : []
+            // Columns share the width evenly, so the divisor has to follow the
+            // configured count rather than a fixed three.
+            readonly property real columnWidth: Math.max(80,
+              (width - spacing * Math.max(0, columns.length - 1))
+                / Math.max(1, columns.length))
+            readonly property int thisIsColumn: Api.artistThisIsColumn(columns)
 
-            Column {
-              width: Math.max(80, (parent.width - parent.spacing) / 2)
-              height: parent.height
-              spacing: Style.space(5)
+            Repeater {
+              model: artistLists.columns
 
-              Text {
-                id: artistAlbumsHeading
-                width: parent.width
-                text: root.artistSearchText.trim() ? "ALBUMS & EPS" : "TOP ALBUMS & EPS"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
+              Column {
+                id: artistColumn
+                required property var modelData
+                required property int index
+                readonly property var sections: modelData
+                readonly property bool hasSongs: sections.indexOf("songs") >= 0
+                readonly property bool hasReleases: sections.indexOf("albums") >= 0
+                  || sections.indexOf("eps") >= 0
+                readonly property bool showsThisIs: root.service
+                  && root.service.artistThisIsPlaylist
+                  && index === artistLists.thisIsColumn
+                width: artistLists.columnWidth
+                height: artistLists.height
+                spacing: Style.space(5)
 
-              MediaCollection {
-                width: parent.width
-                height: Math.max(30, parent.height - artistAlbumsHeading.height
-                  - parent.spacing)
-                keyboardListId: "list-albums"
-                service: root.service
-                sourceItems: root.service ? root.service.artistAlbums : []
-                showFilter: false
-                showQueue: false
-                showSave: true
-                browseContexts: true
-                loading: root.service && root.service.artistAlbumsLoading
-                hasMore: root.service && root.service.artistAlbumsNext !== ""
-                emptyMessage: root.service && (root.service.artistAlbumsLoading
-                  || root.service.detailLoading)
-                  ? "Finding releases…" : "No matching albums or EPs."
-                onActivated: function(item, items, uri) {
-                  root.activateMedia(item, items, uri)
+                Text {
+                  id: artistColumnHeading
+                  width: parent.width
+                  text: Api.artistColumnHeading(artistColumn.sections)
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
                 }
-                onOpened: function(item) { root.openItem(item) }
-                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-                onContextRequested: function(item, x, y, index, items, uri) {
-                  root.openMediaContext(item, x, y, items, uri, index)
-                }
-                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistAlbums()
-              }
-            }
 
-            Column {
-              width: Math.max(80, parent.width - parent.spacing
-                - Math.max(80, (parent.width - parent.spacing) / 2))
-              height: parent.height
-              spacing: Style.space(5)
+                MediaCollection {
+                  width: parent.width
+                  height: Math.max(30, parent.height - artistColumnHeading.height
+                    - artistThisIsRow.height - parent.spacing
+                    * (artistThisIsRow.visible ? 2 : 1))
+                  keyboardListId: Api.artistColumnListId(artistColumn.sections)
+                  service: root.service
+                  sourceItems: root.service
+                    ? Api.artistColumnItems(artistColumn.sections,
+                      root.service.artistSongs, root.service.artistLongPlays,
+                      root.service.artistEps, root.service.artistAlbums)
+                    : []
+                  showFilter: false
+                  // Each row already gates its own actions on item kind, so a
+                  // mixed column can offer both and still render correctly.
+                  showQueue: artistColumn.hasSongs
+                  showSave: true
+                  browseContexts: artistColumn.hasReleases
+                  loading: root.service
+                    && ((artistColumn.hasSongs && root.service.artistSongsLoading)
+                      || (artistColumn.hasReleases && root.service.artistAlbumsLoading))
+                  hasMore: root.service
+                    && ((artistColumn.hasSongs && root.service.artistSongsNext !== "")
+                      || (artistColumn.hasReleases && root.service.artistAlbumsNext !== ""))
+                  emptyMessage: root.service && (root.service.detailLoading
+                    || (artistColumn.hasSongs && root.service.artistSongsLoading)
+                    || (artistColumn.hasReleases && root.service.artistAlbumsLoading))
+                    ? "Finding music…"
+                    : "Nothing to show here."
+                  onActivated: function(item, items, uri) {
+                    root.activateMedia(item, items, uri)
+                  }
+                  onOpened: function(item) { root.openItem(item) }
+                  onQueued: function(item) { if (root.service) root.service.addToQueue(item) }
+                  onPlaylistRequested: function(item) { root.openPlaylistPicker(item) }
+                  onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
+                  onContextRequested: function(item, x, y, index, items, uri) {
+                    root.openMediaContext(item, x, y, items, uri, index)
+                  }
+                  onLoadMoreRequested: if (root.service)
+                    root.service.loadMoreArtistColumn(artistColumn.sections)
+                }
 
-              Text {
-                id: artistSongsHeading
-                width: parent.width
-                text: root.artistSearchText.trim() ? "SONGS" : "TOP 10 SONGS"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-
-              MediaCollection {
-                width: parent.width
-                height: Math.max(30, parent.height - artistSongsHeading.height
-                  - artistThisIsRow.height - parent.spacing
-                  * (artistThisIsRow.visible ? 2 : 1))
-                keyboardListId: "list-songs"
-                service: root.service
-                sourceItems: root.service ? root.service.artistSongs : []
-                showFilter: false
-                showQueue: true
-                showSave: true
-                browseContexts: false
-                loading: root.service && root.service.artistSongsLoading
-                hasMore: root.service && root.service.artistSongsNext !== ""
-                emptyMessage: root.service && (root.service.artistSongsLoading
-                  || root.service.detailLoading)
-                  ? "Finding songs…" : "No matching songs."
-                onActivated: function(item, items, uri) {
-                  root.activateMedia(item, items, uri)
-                }
-                onOpened: function(item) { root.openItem(item) }
-                onQueued: function(item) { if (root.service) root.service.addToQueue(item) }
-                onPlaylistRequested: function(item) { root.openPlaylistPicker(item) }
-                onSaveToggled: function(item) { if (root.service) root.service.toggleSaved(item) }
-                onContextRequested: function(item, x, y, index, items, uri) {
-                  root.openMediaContext(item, x, y, items, uri, index)
-                }
-                onLoadMoreRequested: if (root.service) root.service.loadMoreArtistSongs()
-              }
-
-              MediaRow {
-                id: artistThisIsRow
-                objectName: "artist-thisis"
-                width: parent.width
-                height: visible ? implicitHeight : 0
-                visible: root.service && root.service.artistThisIsPlaylist
-                itemData: root.service ? root.service.artistThisIsPlaylist : null
-                selected: root.cursorOn("page", "detail-thisis")
-                foreground: root.foreground
-                accent: root.accent
-                fontFamily: root.fontFamily
-                browseOnActivate: true
-                showQueue: false
-                showPlaylist: false
-                showSave: true
-                saved: root.service && root.service.isSaved(itemData)
-                onActivated: function(item) { root.activateMedia(item, [item], item.uri) }
-                onOpenRequested: function(item) { root.openItem(item) }
-                onSaveRequested: function(item) {
-                  if (root.service) root.service.toggleSaved(item)
-                }
-                onContextRequested: function(item, sceneX, sceneY) {
-                  root.openMediaContext(item, sceneX, sceneY, [item], item.uri, 0)
-                }
-                ShortcutHint {
-                  active: root.shortcutHintsActive
-                    && root.navHintFor("page", "detail-thisis") !== ""
-                  navHint: root.navHintFor("page", "detail-thisis")
+                MediaRow {
+                  id: artistThisIsRow
+                  objectName: "artist-thisis"
+                  width: parent.width
+                  height: visible ? implicitHeight : 0
+                  visible: artistColumn.showsThisIs
+                  itemData: root.service ? root.service.artistThisIsPlaylist : null
+                  selected: root.cursorOn("page", "detail-thisis")
+                  foreground: root.foreground
+                  accent: root.accent
+                  fontFamily: root.fontFamily
+                  browseOnActivate: true
+                  showQueue: false
+                  showPlaylist: false
+                  showSave: true
+                  saved: root.service && root.service.isSaved(itemData)
+                  onActivated: function(item) { root.activateMedia(item, [item], item.uri) }
+                  onOpenRequested: function(item) { root.openItem(item) }
+                  onSaveRequested: function(item) {
+                    if (root.service) root.service.toggleSaved(item)
+                  }
+                  onContextRequested: function(item, sceneX, sceneY) {
+                    root.openMediaContext(item, sceneX, sceneY, [item], item.uri, 0)
+                  }
+                  ShortcutHint {
+                    active: root.shortcutHintsActive
+                      && root.navHintFor("page", "detail-thisis") !== ""
+                    navHint: root.navHintFor("page", "detail-thisis")
+                  }
                 }
               }
             }
@@ -5991,6 +6013,173 @@ Item {
   }
 
   Component {
+    id: personalizePage
+
+    Item {
+      ScrollView {
+        id: personalizeScroll
+        anchors.fill: parent
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        Column {
+          width: personalizeScroll.availableWidth
+          spacing: Style.space(16)
+
+          Button {
+            text: "Back to settings"
+            iconText: "󰁍"
+            foreground: root.foreground
+            focusable: true
+            tooltipText: "Return to Settings · Esc"
+            onClicked: root.chooseTab("setup")
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            Text {
+              text: "ARTIST PAGE"
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              text: "An artist opens as a row of columns. Choose what belongs on it: the ten songs Spotify ranks highest, the full-length albums, and the EPs and singles. Every release comes from the artist's own discography, newest first."
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            BorderSurface {
+              width: parent.width
+              implicitHeight: artistLayoutSummary.implicitHeight + Style.space(16)
+              color: Style.normalFillFor(root.foreground, root.accent)
+              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
+              radius: Style.cornerRadius
+
+              Text {
+                id: artistLayoutSummary
+                anchors.fill: parent
+                anchors.margins: Style.space(8)
+                text: Api.artistLayoutSummary(root.draftArtistLayout)
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                text: "WHAT TO SHOW"
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Button {
+                text: "Top 10 songs · "
+                  + (root.draftArtistFlags.songs ? "On" : "Off")
+                iconText: "󰝚"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.songs
+                tooltipText: root.draftArtistFlags.songs
+                  ? "The artist's ten highest-ranked songs get their own column"
+                  : "Hidden, and no longer requested from Spotify"
+                onClicked: root.toggleArtistSection("songs")
+              }
+
+              Button {
+                text: "Albums · " + (root.draftArtistFlags.albums ? "On" : "Off")
+                iconText: "󰀥"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.albums
+                tooltipText: "Full-length records and compilations"
+                onClicked: root.toggleArtistSection("albums")
+              }
+
+              Button {
+                text: "EPs and singles · " + (root.draftArtistFlags.eps ? "On" : "Off")
+                iconText: "󰎈"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.eps
+                tooltipText: "Short releases, which Spotify files as singles"
+                onClicked: root.toggleArtistSection("eps")
+              }
+
+              Text {
+                width: parent.width
+                text: "Turning a section off removes its column and skips the request behind it. Switching every section off restores the default rather than leaving the page empty."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                text: "HOW TO GROUP IT"
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Button {
+                text: "Albums and EPs together · "
+                  + (root.draftArtistFlags.combined ? "On" : "Off")
+                iconText: "󰕲"
+                foreground: root.foreground
+                selected: root.draftArtistFlags.combined
+                enabled: root.draftArtistFlags.albums && root.draftArtistFlags.eps
+                tooltipText: root.draftArtistFlags.albums && root.draftArtistFlags.eps
+                  ? "One column of every release in date order, instead of two"
+                  : "Needs both albums and EPs switched on"
+                onClicked: root.toggleArtistSection("combined")
+              }
+
+              Text {
+                width: parent.width
+                text: "Combined, the releases share one column in date order rather than listing every album before the first EP. Each row still says whether it is an album, an EP or a single."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Button {
+                text: "Restore the default layout"
+                iconText: "󰑏"
+                foreground: root.foreground
+                enabled: root.draftArtistColumns !== "albums | eps | songs"
+                onClicked: root.resetArtistColumns()
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Component {
     id: setupPage
 
     Item {
@@ -6157,6 +6346,52 @@ Item {
               }
             }
           }
+
+          PanelSeparator {
+            foreground: root.foreground
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            Text {
+              text: "PERSONALIZE"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              text: "What each page puts in front of you. These choices change the layout only — nothing is hidden from search, and no music becomes unreachable."
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            Button {
+              text: "Personalize"
+              iconText: "󰏘"
+              foreground: root.foreground
+              focusable: true
+              tooltipText: "Choose what the artist page and other views show"
+              onClicked: root.chooseTab("personalize")
+            }
+
+            Text {
+              width: parent.width
+              text: root.service
+                ? "Artist page · " + Api.artistLayoutSummary(root.service.artistColumnLayout)
+                : ""
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+          }
+
 
           PanelSeparator {
             foreground: root.foreground

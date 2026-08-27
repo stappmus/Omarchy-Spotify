@@ -1240,6 +1240,7 @@ function universalSearchVisible(tab, active) {
 function isUtilityTab(tab) {
   var area = String(tab || "")
   return area === "setup" || area === "devices" || area === "login"
+    || area === "personalize"
 }
 
 function rememberContentTab(tab) {
@@ -1251,6 +1252,9 @@ function rememberContentTab(tab) {
 // and skips any intervening Settings/Devices visit so two Esc presses cannot
 // close the window from those menus.
 function previousContentTab(currentTab, lastContentTab) {
+  // Personalize is opened from inside Settings, so leaving it returns there
+  // rather than skipping past its parent to the last content page.
+  if (currentTab === "personalize") return "setup"
   if (currentTab !== "setup" && currentTab !== "devices") return ""
   var previous = rememberContentTab(lastContentTab)
   return previous || "home"
@@ -1826,6 +1830,283 @@ function playlistPageState(existing, incoming, append, next) {
     items: append === true ? current.concat(page) : page,
     next: safeApiUrl(next)
   }
+}
+
+// An artist's discography comes from /artists/{id}/albums, not /search.
+// Search is relevance-ranked full text: it silently drops EPs, singles and
+// compilations, and mixes in releases by similarly named artists. The
+// discography endpoint is the only call that returns the artist's own catalog,
+// and include_groups is what keeps the short releases in it.
+var ARTIST_ALBUM_GROUPS = "album,single,compilation"
+var ARTIST_ALBUM_PAGE_LIMIT = 50
+
+function artistAlbumsPath(artistId) {
+  var id = String(artistId || "").trim()
+  if (!id || !/^[A-Za-z0-9]+$/.test(id)) return ""
+  return "/artists/" + id + "/albums"
+}
+
+function artistAlbumsQuery() {
+  return {
+    include_groups: ARTIST_ALBUM_GROUPS,
+    limit: ARTIST_ALBUM_PAGE_LIMIT
+  }
+}
+
+// The discography endpoint pages a plain album list, so it has no search-style
+// { albums: { items } } envelope to unwrap.
+function normalizeAlbumPage(payload, imageWidth) {
+  return normalizePage(payload, function(value) {
+    return normalizeContext(value, imageWidth || 128)
+  })
+}
+
+// Release dates arrive at year, month or day precision. Pad the short ones so
+// plain string comparison orders them, and so a year-only release sorts inside
+// its own year rather than ahead of every dated release in it.
+function releaseSortKey(releaseDate) {
+  var value = String(releaseDate || "")
+  var parts = value.split("-")
+  var year = parts[0] || "0000"
+  var month = parts.length > 1 ? parts[1] : "00"
+  var day = parts.length > 2 ? parts[2] : "00"
+  return year + "-" + month + "-" + day
+}
+
+function sortArtistAlbums(items) {
+  var rows = Array.isArray(items) ? items.slice() : []
+  // Decorate with the original index so equal dates keep Spotify's own order
+  // instead of depending on the engine's sort stability.
+  var decorated = []
+  for (var i = 0; i < rows.length; i++)
+    decorated.push({ item: rows[i], index: i, key: releaseSortKey(rows[i] && rows[i].releaseDate) })
+  decorated.sort(function(left, right) {
+    if (left.key !== right.key) return left.key < right.key ? 1 : -1
+    return left.index - right.index
+  })
+  var result = []
+  for (var j = 0; j < decorated.length; j++) result.push(decorated[j].item)
+  return result
+}
+
+// One release exists once per market, each with its own album id, so mergeUnique
+// cannot collapse them. Fold on name plus release kind plus track count and keep
+// the first entry, which sortArtistAlbums has already made the earliest.
+function artistAlbumKey(item) {
+  var source = item || {}
+  var name = String(source.name || "").toLowerCase().replace(/\s+/g, " ").trim()
+  if (!name) return ""
+  return name + "\u0000" + String(source.releaseType || "").toLowerCase()
+    + "\u0000" + String(Number(source.total) || 0)
+}
+
+function dedupeArtistAlbums(items) {
+  var rows = Array.isArray(items) ? items : []
+  var seen = {}
+  var result = []
+  for (var i = 0; i < rows.length; i++) {
+    var key = artistAlbumKey(rows[i])
+    if (key) {
+      if (seen[key]) continue
+      seen[key] = true
+    }
+    result.push(rows[i])
+  }
+  return result
+}
+
+function artistDiscography(items) {
+  return dedupeArtistAlbums(sortArtistAlbums(items))
+}
+
+// Spotify has no EP release type: an EP is a "single" carrying more than one
+// track, which is exactly the distinction albumKind() already draws for the
+// row subtitle. Split on the same rule so the album column stays full-length
+// records and short releases get a column of their own.
+function isShortRelease(item) {
+  return String((item && item.releaseType) || "").toLowerCase() === "single"
+}
+
+// The artist page is laid out from a spec string so one setting can express
+// both how many columns there are and what each holds: columns are separated
+// by "|", and the sections inside a column are joined by "+". "songs | albums
+// | eps" is three columns; "songs | albums+eps" merges the releases into one;
+// "albums | eps" drops the top songs entirely.
+// The parsed layout is an array of arrays, and the inner ones reach QML as
+// QVariantList, which Array.isArray rejects. Every helper below reads its
+// input through arrayValues so a column is never silently treated as empty.
+var ARTIST_COLUMNS_DEFAULT = "albums | eps | songs"
+var ARTIST_COLUMN_LIMIT = 4
+
+function artistSectionToken(value) {
+  var token = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+  if (!token) return ""
+  if (["songs", "song", "tracks", "track", "top", "top10", "topsongs",
+    "toptracks"].indexOf(token) >= 0) return "songs"
+  if (["albums", "album", "lp", "lps", "records"].indexOf(token) >= 0) return "albums"
+  if (["eps", "ep", "singles", "single", "epsandsingles"].indexOf(token) >= 0) return "eps"
+  return ""
+}
+
+function parseArtistColumns(spec) {
+  var text = String(spec === undefined || spec === null ? "" : spec)
+  var groups = text.split("|")
+  var columns = []
+  // A section may appear once across the whole layout. Repeating it would
+  // render the same rows in two columns and give them the same keyboard id.
+  var used = {}
+  for (var i = 0; i < groups.length && columns.length < ARTIST_COLUMN_LIMIT; i++) {
+    var parts = groups[i].split("+")
+    var sections = []
+    for (var j = 0; j < parts.length; j++) {
+      var section = artistSectionToken(parts[j])
+      if (!section || used[section]) continue
+      used[section] = true
+      sections.push(section)
+    }
+    if (sections.length) columns.push(sections)
+  }
+  return columns
+}
+
+function normalizedArtistColumns(spec) {
+  var columns = parseArtistColumns(spec)
+  return columns.length ? columns : parseArtistColumns(ARTIST_COLUMNS_DEFAULT)
+}
+
+function formatArtistColumns(columns) {
+  var rows = arrayValues(columns)
+  var text = []
+  for (var i = 0; i < rows.length; i++) text.push(arrayValues(rows[i]).join("+"))
+  return text.join(" | ")
+}
+
+function artistColumnsShow(columns, section) {
+  var rows = arrayValues(columns)
+  for (var i = 0; i < rows.length; i++)
+    if (arrayValues(rows[i]).indexOf(section) >= 0) return true
+  return false
+}
+
+function artistColumnHeading(sections) {
+  var rows = arrayValues(sections)
+  var alone = rows.length === 1
+  var labels = []
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i] === "songs") labels.push(alone ? "TOP 10 SONGS" : "SONGS")
+    else if (rows[i] === "albums") labels.push("ALBUMS")
+    else if (rows[i] === "eps") labels.push(alone ? "EPS & SINGLES" : "EPS")
+  }
+  return labels.join(" & ")
+}
+
+function artistColumnListId(sections) {
+  var rows = arrayValues(sections)
+  return rows.length ? "list-" + rows.join("-") : "list"
+}
+
+function artistColumnListIds(columns) {
+  var rows = arrayValues(columns)
+  var ids = []
+  for (var i = 0; i < rows.length; i++) ids.push(artistColumnListId(rows[i]))
+  return ids
+}
+
+// Albums and EPs are two halves of one date-ordered discography, so a column
+// holding both takes that list whole. Concatenating the filtered halves would
+// print every album before the first EP and lose the ordering the split was
+// derived from.
+function artistColumnItems(sections, songs, albums, eps, discography) {
+  var rows = arrayValues(sections)
+  var combined = rows.indexOf("albums") >= 0 && rows.indexOf("eps") >= 0
+  var releasesTaken = false
+  var items = []
+  for (var i = 0; i < rows.length; i++) {
+    var section = rows[i]
+    if (section === "songs") {
+      items = items.concat(arrayValues(songs))
+      continue
+    }
+    if (combined) {
+      if (releasesTaken) continue
+      releasesTaken = true
+      items = items.concat(arrayValues(discography))
+      continue
+    }
+    items = items.concat(arrayValues(section === "albums" ? albums : eps))
+  }
+  return items
+}
+
+// The Personalize page drives the layout with plain toggles, so the spec has
+// to survive a round trip through them. Reading the flags out of a parsed
+// layout keeps the toggles honest when the spec was written by hand.
+function artistLayoutFlags(columns) {
+  var rows = arrayValues(columns)
+  var combined = false
+  for (var i = 0; i < rows.length; i++) {
+    var sections = arrayValues(rows[i])
+    if (sections.indexOf("albums") >= 0 && sections.indexOf("eps") >= 0)
+      combined = true
+  }
+  return {
+    songs: artistColumnsShow(rows, "songs"),
+    albums: artistColumnsShow(rows, "albums"),
+    eps: artistColumnsShow(rows, "eps"),
+    combined: combined
+  }
+}
+
+function artistColumnsFromFlags(flags) {
+  var source = flags || {}
+  var albums = source.albums === true
+  var eps = source.eps === true
+  // Combining needs both halves present; the toggle is meaningless otherwise.
+  var combined = source.combined === true && albums && eps
+  // Releases lead and the top songs trail them, which is the order the columns
+  // are laid out in; the toggles never produce any other arrangement.
+  var columns = []
+  if (combined) columns.push("albums+eps")
+  else {
+    if (albums) columns.push("albums")
+    if (eps) columns.push("eps")
+  }
+  if (source.songs === true) columns.push("songs")
+  // Turning everything off would leave an artist page with nothing on it.
+  return columns.length ? columns.join(" | ") : ARTIST_COLUMNS_DEFAULT
+}
+
+function artistLayoutSummary(columns) {
+  var rows = arrayValues(columns)
+  var labels = []
+  for (var i = 0; i < rows.length; i++) labels.push(artistColumnHeading(rows[i]))
+  var count = rows.length
+  return count + (count === 1 ? " column · " : " columns · ") + labels.join("  ·  ")
+}
+
+// The "This Is" playlist belongs under the top songs. With songs hidden it has
+// no natural home, so it falls back to the first column.
+function artistThisIsColumn(columns) {
+  var rows = arrayValues(columns)
+  for (var i = 0; i < rows.length; i++)
+    if (arrayValues(rows[i]).indexOf("songs") >= 0) return i
+  return 0
+}
+
+function artistLongPlays(items) {
+  var rows = Array.isArray(items) ? items : []
+  var result = []
+  for (var i = 0; i < rows.length; i++)
+    if (!isShortRelease(rows[i])) result.push(rows[i])
+  return result
+}
+
+function artistShortReleases(items) {
+  var rows = Array.isArray(items) ? items : []
+  var result = []
+  for (var i = 0; i < rows.length; i++)
+    if (isShortRelease(rows[i])) result.push(rows[i])
+  return result
 }
 
 function searchTypeKey(type) {

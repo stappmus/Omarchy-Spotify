@@ -39,7 +39,8 @@
       "scrollBarText": "Off",
       "scrollSpeed": "1",
       "maxBarTextWidth": "240",
-      "audioQuality": "320 kbps"
+      "audioQuality": "320 kbps",
+      "artistColumns": "albums | eps | songs"
     },
     "schema": [
       {

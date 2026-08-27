@@ -43,7 +43,8 @@ Item {
     scrollBarText: "Off",
     scrollSpeed: "1",
     maxBarTextWidth: "240",
-    audioQuality: "320 kbps"
+    audioQuality: "320 kbps",
+    artistColumns: "albums | eps | songs"
   })
   property var settings: Api.shallowCopy(defaultSettingValues)
 
@@ -67,6 +68,10 @@ Item {
       : (quality.indexOf("160") === 0 ? 160 : 320)
   }
   readonly property string audioQuality: bitrateKbps + " kbps"
+  // Parsed once here so the panel, the fetch gating and the keyboard cursor
+  // all read the same layout.
+  readonly property var artistColumnLayout: Api.normalizedArtistColumns(
+    settings.artistColumns)
   property var searchHistory: []
   property var sessionState: ({})
   property bool sessionFileReady: false
@@ -335,6 +340,10 @@ Item {
   property var artistAlbums: []
   property string artistAlbumsNext: ""
   property bool artistAlbumsLoading: false
+  // One discography request feeds both columns, so the split is derived rather
+  // than fetched twice. Paging appends to artistAlbums and both refresh.
+  readonly property var artistLongPlays: Api.artistLongPlays(artistAlbums)
+  readonly property var artistEps: Api.artistShortReleases(artistAlbums)
   property var artistSongs: []
   property string artistSongsNext: ""
   property bool artistSongsLoading: false
@@ -441,7 +450,8 @@ Item {
     var source = values || {}
     var keys = ["deviceName", "idleShutdownMinutes", "showMiniPlayer",
       "shortcutPlayer", "shortcutHints", "showTrackTitle", "showArtistName",
-      "scrollBarText", "scrollSpeed", "maxBarTextWidth", "audioQuality"]
+      "scrollBarText", "scrollSpeed", "maxBarTextWidth", "audioQuality",
+      "artistColumns"]
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i]
       if (source[key] !== undefined) next[key] = source[key]
@@ -464,6 +474,10 @@ Item {
     var quality = String(next.audioQuality || "320 kbps")
     next.audioQuality = quality.indexOf("96") === 0 ? "96 kbps"
       : (quality.indexOf("160") === 0 ? "160 kbps" : "320 kbps")
+    // Round-trip the spec so a typo is rewritten to the layout actually in use
+    // rather than left in the settings field looking as though it took effect.
+    next.artistColumns = Api.formatArtistColumns(
+      Api.normalizedArtistColumns(next.artistColumns))
     return next
   }
 
@@ -1156,7 +1170,8 @@ Item {
 
   function normalizedView(view) {
     var value = String(view || "search")
-    return ["home", "discover", "search", "library", "playlists", "detail", "queue", "devices", "setup"].indexOf(value) >= 0
+    return ["home", "discover", "search", "library", "playlists", "detail",
+      "queue", "devices", "setup", "personalize"].indexOf(value) >= 0
       ? value : "search"
   }
 
@@ -2067,23 +2082,48 @@ Item {
     artistPlaylistsLoading = false
     detailMessage = ""
     detailLoading = true
-    requestArtistCatalog("album", false, expectedDetail, expectedCatalog, parent)
     if (artistCatalogQuery) {
+      requestArtistCatalog("album", false, expectedDetail, expectedCatalog, parent)
       requestArtistCatalog("track", false, expectedDetail, expectedCatalog, parent)
       requestArtistCatalog("playlist", false, expectedDetail, expectedCatalog, parent)
-    } else requestArtistTopSongs(false, expectedDetail, expectedCatalog, parent, 0)
+    } else {
+      // Browsing shows only the columns the layout asks for, so a hidden
+      // section costs no request.
+      if (Api.artistColumnsShow(artistColumnLayout, "albums")
+        || Api.artistColumnsShow(artistColumnLayout, "eps"))
+        requestArtistCatalog("album", false, expectedDetail, expectedCatalog, parent)
+      if (Api.artistColumnsShow(artistColumnLayout, "songs"))
+        requestArtistTopSongs(false, expectedDetail, expectedCatalog, parent, 0)
+    }
+    // With every section hidden nothing is in flight to clear the flag later.
+    detailLoading = artistCatalogLoading
+  }
+
+  // A column can hold more than one section, so paging it advances whichever
+  // of its sections still has a continuation URL.
+  function loadMoreArtistColumn(sections) {
+    var rows = Array.isArray(sections) ? sections : []
+    if (rows.indexOf("songs") >= 0) loadMoreArtistSongs()
+    if (rows.indexOf("albums") >= 0 || rows.indexOf("eps") >= 0) loadMoreArtistAlbums()
   }
 
   function requestArtistCatalog(type, append, expectedDetail, expectedCatalog, artist) {
     var albums = type === "album"
     var playlists = type === "playlist"
+    // Browsing an artist pulls the real discography, which is the only source
+    // that carries every EP, single and compilation. A typed filter still goes
+    // through search, because there the user is searching text, not browsing.
+    var discographyPath = albums && !artistCatalogQuery
+      ? Api.artistAlbumsPath(artist && artist.id) : ""
     var path = append ? (albums ? artistAlbumsNext
-      : (playlists ? artistPlaylistsNext : artistSongsNext)) : "/search"
+      : (playlists ? artistPlaylistsNext : artistSongsNext))
+      : (discographyPath || "/search")
     if (!path) return
     if (albums) artistAlbumsLoading = true
     else if (playlists) artistPlaylistsLoading = true
     else artistSongsLoading = true
-    var query = append ? null : {
+    var query = null
+    if (!append) query = discographyPath ? Api.artistAlbumsQuery() : {
       q: playlists
         ? Api.artistPlaylistSearchText(artist.name, artistCatalogQuery)
         : Api.catalogSearchText(artist.name, artistCatalogQuery),
@@ -2098,16 +2138,22 @@ Item {
       else root.artistSongsLoading = false
       root.detailLoading = root.artistCatalogLoading
       if (error) { root.fail(error); return }
-      root.applyArtistCatalogPage(type, append,
-        Api.normalizeSearchPage(payload, type, 96))
+      root.applyArtistCatalogPage(type, append, discographyPath
+        ? Api.normalizeAlbumPage(payload, 96)
+        : Api.normalizeSearchPage(payload, type, 96),
+        discographyPath !== "")
     })
   }
 
-  function applyArtistCatalogPage(type, append, page) {
+  function applyArtistCatalogPage(type, append, page, discography) {
     var existing = type === "album" ? artistAlbums
       : (type === "playlist" ? artistPlaylists : artistSongs)
-    var items = (append ? Api.mergeUnique(existing, page.items) : page.items)
-      .slice(0, cacheLimit)
+    var merged = append ? Api.mergeUnique(existing, page.items) : page.items
+    // The same release comes back once per market under its own album id, so
+    // mergeUnique cannot collapse it. Fold and order across the whole merged
+    // list rather than per page, or a duplicate split across two pages survives.
+    if (discography === true) merged = Api.artistDiscography(merged)
+    var items = merged.slice(0, cacheLimit)
     var next = items.length >= cacheLimit ? "" : page.next
     if (type === "album") {
       artistAlbums = items

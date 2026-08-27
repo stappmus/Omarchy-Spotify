@@ -35,9 +35,13 @@ BorderSurface {
     && ["track", "episode"].indexOf(itemData.type) >= 0
   readonly property bool playActionVisible: showPlay && itemData
     && ["show", "audiobook"].indexOf(itemData.type) < 0
-  readonly property int fullActionCount: (durationActionVisible ? 1 : 0)
-    + (saveActionVisible ? 1 : 0) + (playlistActionVisible ? 1 : 0)
-    + (queueActionVisible ? 1 : 0) + (playActionVisible ? 1 : 0)
+  // Save and play stay on the row at every width; only the secondary actions
+  // fold into the toggle when a long title needs the space.
+  readonly property int pinnedActionCount: (saveActionVisible ? 1 : 0)
+    + (playActionVisible ? 1 : 0)
+  readonly property int collapsibleActionCount: (durationActionVisible ? 1 : 0)
+    + (playlistActionVisible ? 1 : 0) + (queueActionVisible ? 1 : 0)
+  readonly property int fullActionCount: pinnedActionCount + collapsibleActionCount
   readonly property real fullActionWidth:
     (durationActionVisible ? durationLabel.implicitWidth : 0)
     + (saveActionVisible ? saveButton.implicitWidth : 0)
@@ -49,7 +53,7 @@ BorderSurface {
     contentRow.width - artworkSurface.width - fullActionWidth
       - contentRow.spacing * 2)
   readonly property bool compactActions: Api.mediaRowShouldCompact(
-    titleMetrics.advanceWidth, titleWidthWithFullActions, fullActionCount)
+    titleMetrics.advanceWidth, titleWidthWithFullActions, collapsibleActionCount)
 
   signal activated(var item)
   signal openRequested(var item)
@@ -262,7 +266,6 @@ BorderSurface {
         id: saveButton
         objectName: "media-row-save"
         visible: root.saveActionVisible
-          && (!root.compactActions || root.actionsExpanded)
         iconText: "󰋑"
         foreground: Color.urgent
         accent: Color.urgent
@@ -299,7 +302,6 @@ BorderSurface {
         id: playButton
         objectName: "media-row-play"
         visible: root.playActionVisible
-          && (!root.compactActions || root.actionsExpanded)
         iconText: "󰐊"
         foreground: root.foreground
         tooltipText: "Play"
