@@ -181,8 +181,9 @@ used again.
 - Build a queue, start track radio, use shuffle and repeat, or set a sleep timer.
 - Listen on this computer or switch to another Spotify Connect speaker or player.
 - Choose the mini-player or full player independently for the bar icon and
-  keyboard shortcut, show the title, artist, or both, and softly scroll
-  overflowing text at an adjustable speed.
+  keyboard shortcut, use optional spinning vinyl artwork in the mini-player,
+  show the title, artist, or both, and softly scroll overflowing text at an
+  adjustable speed.
 - Choose up to 320 kbps for local playback.
 
 Your Spotify password is entered only on Spotify's own page. Omarchy Spotify

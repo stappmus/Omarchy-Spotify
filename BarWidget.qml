@@ -23,6 +23,8 @@ BarWidget {
       spotify.showTrackTitle, spotify.showArtistName, spotify.playing) : ""
   readonly property bool miniPlayerEnabled:
     String(root.setting("showMiniPlayer", "On")) !== "Off"
+  readonly property bool vinylRecordEnabled:
+    String(root.setting("showVinylRecord", "Off")) === "On"
   readonly property bool iconOnly: !spotify || vertical || !spotify.hasMedia
     || barText === ""
   property bool popupOpen: false
@@ -838,38 +840,126 @@ BarWidget {
         visible: !root.lyricsInstallPromptVisible
           && (!root.spotify || root.spotify.accountConnected)
 
-        BorderSurface {
+        Item {
           id: miniArtworkSurface
           width: Style.space(78)
           height: width
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          radius: Style.cornerRadius
-          color: Style.normalFillFor(root.foreground, Color.accent)
-          borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
 
-          Image {
-            id: popupArtwork
+          BorderSurface {
+            id: rectangleArtworkSurface
             anchors.fill: parent
-            anchors.margins: Style.space(3)
-            source: root.popupOpen && root.spotify ? root.spotify.artUrl : ""
-            sourceSize.width: 156
-            sourceSize.height: 156
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            cache: true
-            visible: status === Image.Ready
+            visible: !root.vinylRecordEnabled
+            radius: Style.cornerRadius
+            color: Style.normalFillFor(root.foreground, Color.accent)
+            borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+
+            Image {
+              id: popupArtwork
+              anchors.fill: parent
+              anchors.margins: Style.space(3)
+              source: !root.vinylRecordEnabled && root.popupOpen && root.spotify
+                ? root.spotify.artUrl : ""
+              sourceSize.width: 156
+              sourceSize.height: 156
+              fillMode: Image.PreserveAspectFit
+              asynchronous: true
+              cache: true
+              visible: status === Image.Ready
+            }
+
+            Text {
+              anchors.centerIn: parent
+              visible: popupArtwork.status !== Image.Ready
+              text: ""
+              color: root.foreground
+              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.displayLarge
+            }
           }
 
-          Text {
-            anchors.centerIn: parent
-            visible: popupArtwork.status !== Image.Ready
-            text: ""
-            color: root.foreground
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.displayLarge
-          }
+          Rectangle {
+            id: recordArtworkSurface
+            anchors.fill: parent
+            visible: root.vinylRecordEnabled
+            radius: width / 2
+            color: Style.normalFillFor(root.foreground, Color.accent)
+            border.width: 1
+            border.color: root.foreground
+            clip: true
 
+            Rectangle {
+              id: popupRecordMask
+              anchors.fill: parent
+              anchors.margins: Style.space(3)
+              radius: width / 2
+              color: "white"
+              visible: false
+              layer.enabled: true
+            }
+
+            Rectangle {
+              id: popupRecord
+              anchors.fill: parent
+              anchors.margins: Style.space(3)
+              radius: width / 2
+              color: Style.normalFillFor(root.foreground, Color.accent)
+              clip: true
+
+              RotationAnimation on rotation {
+                from: 0
+                to: 360
+                duration: 7000
+                loops: Animation.Infinite
+                running: root.vinylRecordEnabled && root.popupOpen
+                  && root.spotify && root.spotify.playing
+              }
+
+              Image {
+                id: popupRecordArtwork
+                anchors.fill: parent
+                source: root.vinylRecordEnabled && root.popupOpen && root.spotify
+                  ? root.spotify.artUrl : ""
+                sourceSize.width: 156
+                sourceSize.height: 156
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                visible: false
+              }
+
+              MultiEffect {
+                anchors.fill: parent
+                source: popupRecordArtwork
+                maskEnabled: true
+                maskSource: popupRecordMask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 1
+                visible: popupRecordArtwork.status === Image.Ready
+              }
+
+              Rectangle {
+                anchors.centerIn: parent
+                width: Math.max(Style.space(8), parent.width * 0.16)
+                height: width
+                radius: width / 2
+                color: Color.background
+                border.width: 1
+                border.color: Qt.rgba(0, 0, 0, 0.35)
+                visible: popupRecordArtwork.status === Image.Ready
+              }
+            }
+
+            Text {
+              anchors.centerIn: parent
+              visible: popupRecordArtwork.status !== Image.Ready
+              text: ""
+              color: root.foreground
+              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.displayLarge
+            }
+          }
         }
 
         Column {

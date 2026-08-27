@@ -46,6 +46,7 @@ Item {
   property string draftDeviceName: "Omarchy Spotify"
   property string draftIdleMinutes: "15"
   property bool draftShowMiniPlayer: true
+  property bool draftShowVinylRecord: false
   property string draftShortcutPlayer: "Omarchy Music app"
   property bool draftShortcutHints: true
   property bool shortcutModeLatched: false
@@ -173,6 +174,7 @@ Item {
     draftDeviceName = service.deviceName
     draftIdleMinutes = String(service.idleShutdownMinutes)
     draftShowMiniPlayer = service.showMiniPlayer
+    draftShowVinylRecord = service.showVinylRecord
     draftShortcutPlayer = service.shortcutPlayer
     draftShortcutHints = service.shortcutHintsEnabled
     draftShowTitle = service.showTrackTitle
@@ -190,6 +192,7 @@ Item {
       idleShutdownMinutes: Math.max(0, Math.min(1440,
         Math.floor(Number(draftIdleMinutes) || 0))),
       showMiniPlayer: draftShowMiniPlayer ? "On" : "Off",
+      showVinylRecord: draftShowVinylRecord ? "On" : "Off",
       shortcutPlayer: draftShortcutPlayer,
       shortcutHints: draftShortcutHints ? "On" : "Off",
       showTrackTitle: draftShowTitle ? "On" : "Off",
@@ -6256,6 +6259,30 @@ Item {
                   root.draftShowMiniPlayer = !root.draftShowMiniPlayer
                   root.persistDraftSettings()
                 }
+              }
+
+              Button {
+                text: "Spinning vinyl artwork · "
+                  + (root.draftShowVinylRecord ? "On" : "Off")
+                iconText: ""
+                foreground: root.foreground
+                selected: root.draftShowVinylRecord
+                tooltipText: root.draftShowVinylRecord
+                  ? "Show spinning vinyl artwork in the mini-player"
+                  : "Show the original rectangular artwork in the mini-player"
+                onClicked: {
+                  root.draftShowVinylRecord = !root.draftShowVinylRecord
+                  root.persistDraftSettings()
+                }
+              }
+
+              Text {
+                width: parent.width
+                text: "Adds a spinning vinyl record for the mini-player artwork while music is playing."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
               }
             }
 
