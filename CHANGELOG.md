@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve the current track, position, remaining queue, volume, shuffle, and
+  repeat mode when the local librespot session reconnects after an unexpected
+  connection closure.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the

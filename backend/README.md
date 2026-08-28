@@ -40,7 +40,10 @@ cannot take the supervised process's bus ownership.
 If librespot's session task ends, the backend replaces only its Session and
 Spirc pair. The socket, MPRIS name, player, and command queue remain alive.
 Five reconnects are allowed in ten minutes; exceeding that limit exits so
-systemd can perform the existing clean restart.
+systemd can perform the existing clean restart. An active or paused track is
+restored at its last position together with its remaining queue and playback
+settings. Queue snapshots stay internal to the engine and are not published on
+the local protocol.
 
 ## Future work
 
