@@ -27,7 +27,8 @@ omarchy plugin validate .
 qmllint -I /usr/share/omarchy/shell Api.js OAuth.js AuthManager.qml \
   SpotifyApi.qml SpotifyConnectManager.qml DaemonManager.qml BackendClient.qml Service.qml \
   BarWidget.qml PlaybackSlider.qml ArtistLinks.qml MediaByline.qml MediaRow.qml MediaCollection.qml \
-  ArtistSearchSection.qml LyricsInstallPrompt.qml ShortcutHint.qml TransportButton.qml Panel.qml
+  ArtistSearchSection.qml LyricsInstallPrompt.qml RetryImage.qml ShortcutHint.qml \
+  TransportButton.qml Panel.qml
 
 QT_QPA_PLATFORM=offscreen "$qml_test_runner" \
   -input tests \
