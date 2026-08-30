@@ -1136,14 +1136,23 @@ TestCase {
       "speaker")
   }
 
-  function test_activePlaybackTargetOmitsDeviceId() {
+  function test_activePlaybackTargetKeepsDeviceId() {
     var active = { id: "phone", active: true }
     var fallback = { id: "omarchy", active: false }
 
-    compare(Api.playbackTargetDeviceId(active, false), "")
-    compare(Api.playbackTargetDeviceId(active, true), "phone")
-    compare(Api.playbackTargetDeviceId(fallback, false), "omarchy")
-    compare(Api.playbackTargetDeviceId(null, false), "")
+    compare(Api.playbackTargetDeviceId(active), "phone")
+    compare(Api.playbackTargetDeviceId(fallback), "omarchy")
+    compare(Api.playbackTargetDeviceId(null), "")
+    compare(Api.playbackTargetDeviceId({ id: "" }), "")
+  }
+
+  function test_noActiveDeviceError_matchesSpotifyPayload() {
+    verify(Api.isNoActiveDeviceError(
+      "Player command failed: No active device found (NO_ACTIVE_DEVICE)"))
+    verify(Api.isNoActiveDeviceError("NO_ACTIVE_DEVICE"))
+    verify(Api.isNoActiveDeviceError("no active device found"))
+    verify(!Api.isNoActiveDeviceError("Restriction violated"))
+    verify(!Api.isNoActiveDeviceError(""))
   }
 
   function test_restrictedActiveDeviceDoesNotSilentlyFallBackToLocal() {
@@ -1156,7 +1165,7 @@ TestCase {
 
     compare(Api.preferredPlaybackDevice([speaker, local], "", false).id,
       "speaker")
-    compare(Api.playbackTargetDeviceId(speaker, false), "")
+    compare(Api.playbackTargetDeviceId(speaker), "speaker")
   }
 
   function test_unavailableExplicitDeviceFallsBackToLocal() {

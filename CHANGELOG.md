@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Wake an idle local Spotify Connect receiver on the first play, pause, or
+  queue command. Spotify returns NO_ACTIVE_DEVICE when `/me/player/play`
+  omits `device_id` and nothing is active; the spotifyd fallback also
+  withholds MPRIS until after that first transfer. Commands now address the
+  chosen receiver by id, and retry against this computer if Spotify still
+  reports no active device.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the

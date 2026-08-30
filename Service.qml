@@ -418,6 +418,8 @@ Item {
   readonly property bool lastRadioPlaying: !!lastRadioPlaylist
     && radioContextSelected && playing
   property bool localActivationRequested: false
+  property bool pendingTogglePlay: false
+  property bool recoveringActiveDevice: false
   property int deviceProbeAttempts: 0
   property int localSocketWaitAttempts: 0
   property int visibleLocalDeviceRefreshAttempts: 0
@@ -1177,6 +1179,11 @@ Item {
   function apiAction(method, path, query, body, successText, callback) {
     noteActivity()
     spotifyApi.request(method, path, query, body, function(status, payload, error) {
+      if (error && Api.isNoActiveDeviceError(error)
+          && !root.recoveringActiveDevice
+          && root.recoverNoActiveDevice(method, path, query, body,
+            successText, callback))
+        return
       if (error) {
         root.fail(error)
         if (typeof callback === "function") callback(false, payload)
@@ -1185,6 +1192,44 @@ Item {
       root.succeed(successText)
       if (typeof callback === "function") callback(true, payload)
     })
+  }
+
+  // spotifyd is registered but idle until a device_id transfer wakes it.
+  // Replay the original player command against this computer when Spotify
+  // reports that nothing is active.
+  function recoverNoActiveDevice(method, path, query, body, successText, callback) {
+    var target = autoselectLocalDevice() || chooseDevice() || localDevice()
+    var id = target && target.restricted !== true ? String(target.id || "") : ""
+    if (!id) {
+      if (String(path) !== "/me/player/play") return false
+      if (body) {
+        pendingPlaybackBody = body
+        pendingPlaybackMessage = String(successText || "")
+        if (!pendingPlayback) pendingPlayback = { uri: "" }
+      } else {
+        pendingTogglePlay = true
+      }
+      startEngine()
+      return true
+    }
+    recoveringActiveDevice = true
+    var nextQuery = query ? Api.shallowCopy(query) : ({})
+    nextQuery.device_id = id
+    selectedDeviceId = id
+    apiAction("PUT", "/me/player", null,
+      { device_ids: [id], play: false }, "", function(ok) {
+        if (!ok) {
+          root.recoveringActiveDevice = false
+          if (typeof callback === "function") callback(false, null)
+          return
+        }
+        root.apiAction(method, path, nextQuery, body, successText,
+          function(retryOk, payload) {
+            root.recoveringActiveDevice = false
+            if (typeof callback === "function") callback(retryOk, payload)
+          })
+      })
+    return true
   }
 
   function normalizedView(view) {
@@ -2907,7 +2952,10 @@ Item {
     pendingPlaybackMessage = ""
     pendingPlaybackRadio = null
     pendingPlaybackSerial = 0
-    if (keepActivation !== true) localActivationRequested = false
+    if (keepActivation !== true) {
+      localActivationRequested = false
+      pendingTogglePlay = false
+    }
   }
 
   function dispatchPendingPlayback(playbackSerial) {
@@ -2915,7 +2963,7 @@ Item {
     var target = autoselectLocalDevice() || chooseDevice()
     if (target && !target.local) {
       localActivationRequested = false
-      sendPendingPlayback(Api.playbackTargetDeviceId(target, selectedDeviceExplicit))
+      sendPendingPlayback(Api.playbackTargetDeviceId(target))
       return
     }
     if (!daemonManager.credentialsAvailable && (!target || target.local)) {
@@ -2930,7 +2978,7 @@ Item {
     }
     if (target && target.local && daemonManager.running) {
       localActivationRequested = false
-      sendPendingPlayback(Api.playbackTargetDeviceId(target, selectedDeviceExplicit))
+      sendPendingPlayback(Api.playbackTargetDeviceId(target))
       return
     }
     if (!daemonManager.binaryAvailable || !daemonManager.unitAvailable) {
@@ -2980,7 +3028,7 @@ Item {
       root.pendingPlaybackSerial = playbackSerial
       root.succeed(Api.localSocketFallbackMessage())
       root.sendPendingPlayback(Api.playbackTargetDeviceId(
-        root.localDevice() || root.chooseDevice(), root.selectedDeviceExplicit))
+        root.localDevice() || root.chooseDevice()))
     })
   }
 
@@ -3013,15 +3061,17 @@ Item {
   }
 
   function probeForLocalDevice() {
-    if (!pendingPlayback && !localActivationRequested) return
+    if (!pendingPlayback && !localActivationRequested && !pendingTogglePlay)
+      return
     loadDevices(function() {
-      if (!root.pendingPlayback && !root.localActivationRequested) return
+      if (!root.pendingPlayback && !root.localActivationRequested
+          && !root.pendingTogglePlay)
+        return
       var target = root.pendingPlayback
         ? (root.autoselectLocalDevice() || root.chooseDevice()) : null
       if (target && !target.local) {
         root.localActivationRequested = false
-        root.sendPendingPlayback(Api.playbackTargetDeviceId(
-          target, root.selectedDeviceExplicit))
+        root.sendPendingPlayback(Api.playbackTargetDeviceId(target))
         return
       }
       var local = root.localDevice()
@@ -3030,7 +3080,11 @@ Item {
         root.selectedDeviceExplicit = false
         if (root.pendingPlayback) {
           root.localActivationRequested = false
-          root.sendPendingPlayback(Api.playbackTargetDeviceId(local, false))
+          root.sendPendingPlayback(Api.playbackTargetDeviceId(local))
+        } else if (root.pendingTogglePlay) {
+          root.localActivationRequested = false
+          root.pendingTogglePlay = false
+          root.remotePlayerAction("PUT", "/me/player/play", { device_id: local.id })
         } else {
           root.activateLocalDevice(local.id)
         }
@@ -3066,13 +3120,26 @@ Item {
     var radioPlaylist = pendingPlaybackRadio
     var playbackSerial = pendingPlaybackSerial
     if (!body) return
+    var id = String(deviceId || "")
+    if (!id) {
+      var target = autoselectLocalDevice() || chooseDevice() || localDevice()
+      id = target && target.restricted !== true ? String(target.id || "") : ""
+    }
+    if (!id) {
+      localActivationRequested = true
+      deviceProbeAttempts = 0
+      if (!daemonManager.running && !daemonManager.busy) daemonManager.start()
+      deviceProbeTimer.restart()
+      return
+    }
     clearPendingPlayback(true)
-    apiAction("PUT", "/me/player/play", { device_id: deviceId }, body, successMessage,
+    pendingTogglePlay = false
+    apiAction("PUT", "/me/player/play", { device_id: id }, body, successMessage,
       function(ok) {
         if (ok) {
           if (playbackSerial === root.radioSerial)
             root.radioContextSelected = !!radioPlaylist
-          root.selectedDeviceId = String(deviceId || root.selectedDeviceId)
+          root.selectedDeviceId = id || String(root.selectedDeviceId)
           root.loadDevices()
           root.loadQueue()
         }
@@ -3223,8 +3290,15 @@ Item {
       activePlayer.togglePlaying()
       return
     }
+    var query = controlQuery()
+    if (!playing && !(query && query.device_id)) {
+      pendingTogglePlay = true
+      startEngine()
+      return
+    }
+    pendingTogglePlay = false
     remotePlayerAction("PUT", playing ? "/me/player/pause" : "/me/player/play",
-      controlQuery())
+      query)
   }
 
   function next() {
@@ -3244,7 +3318,9 @@ Item {
   function controlDeviceId() {
     if (useRemotePlayback) return remoteDevice && !remoteDevice.restricted
       ? String(remoteDevice.id || "") : ""
-    return String(selectedDeviceId || "")
+    if (String(selectedDeviceId || "")) return String(selectedDeviceId)
+    var target = chooseDevice() || localDevice()
+    return target && target.restricted !== true ? String(target.id || "") : ""
   }
 
   function controlQuery(extra) {

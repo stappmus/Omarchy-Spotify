@@ -130,7 +130,10 @@ usable after the account connects, even while that second step is unfinished.
 
 New playback keeps Spotify's currently active device. An explicit
 choice in the Devices view takes priority, and the app's local device is used
-only when no active target is available. Restricted active devices are kept as
+only when no active target is available. Player commands address that
+receiver by `device_id` even when it is already marked active: omitting the
+id still yields `NO_ACTIVE_DEVICE` if the Connect session has gone idle, and
+the spotifyd fallback does not export MPRIS until after the first transfer. Restricted active devices are kept as
 the target rather than silently moving playback locally; Spotify may reject the
 new selection when it does not allow Web API control. The app can perform a
 one-shot `_spotify-connect._tcp` lookup for nearby receivers omitted from
