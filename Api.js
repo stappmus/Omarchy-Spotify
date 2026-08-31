@@ -240,6 +240,15 @@ function responseError(status, payload, fallback) {
   return redact(message)
 }
 
+// spotifyd's MPRIS player only appears after the first transfer, so the play
+// button's first Web API command has to name a receiver itself. Matching the
+// machine reason covers both the raw payload and the formatted status text.
+function isNoActiveDeviceError(error) {
+  var text = String(error || "").toUpperCase()
+  return text.indexOf("NO_ACTIVE_DEVICE") !== -1
+    || text.indexOf("NO ACTIVE DEVICE") !== -1
+}
+
 function rateLimitSuffix(retryAfter) {
   var seconds = Number(String(retryAfter || "").trim())
   if (!isFinite(seconds) || seconds <= 0) return ""
@@ -632,13 +641,15 @@ function automaticLocalPlaybackDevice(selectedId, preferredDevice, localDevice) 
       && candidate.restricted !== true ? candidate : null
 }
 
-// Omitting device_id tells Spotify to keep the user's active device. Address a
-// device directly only for an explicit choice or an inactive fallback target.
-function playbackTargetDeviceId(device, explicitSelection) {
+// Address the chosen receiver directly. Omitting device_id used to mean "keep
+// the active device", but Spotify still returns NO_ACTIVE_DEVICE when that
+// session has gone idle. Passing the same id is a no-op for a live target and
+// is required to wake this computer's receiver. Receivers with no Web API id,
+// such as some Sonos, still return an empty string.
+function playbackTargetDeviceId(device) {
   var item = device || null
   if (!item) return ""
-  return explicitSelection === true || item.active !== true
-    ? String(item.id || "") : ""
+  return String(item.id || "")
 }
 
 function isLocalPlaybackDevice(device, configuredName, runtimeName, knownId) {
