@@ -34,6 +34,7 @@
       "showMiniPlayer": "On",
       "shortcutPlayer": "Omarchy Music app",
       "shortcutHints": "On",
+      "showLyrics": "On",
       "showTrackTitle": "On",
       "showArtistName": "Off",
       "showPausedTrack": "On",
@@ -93,6 +94,17 @@
         ],
         "defaultValue": "On",
         "description": "After the first shortcut, matching controls show the next key to press. Shortcuts still work when this is off."
+      },
+      {
+        "key": "showLyrics",
+        "type": "enum",
+        "label": "Lyrics button",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "Show the Omasing lyrics button in the player and mini-player. When off, Ctrl+Shift+L is inactive too."
       },
       {
         "key": "showTrackTitle",

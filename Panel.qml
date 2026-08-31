@@ -51,6 +51,7 @@ Item {
   property bool draftShowMiniPlayer: true
   property string draftShortcutPlayer: "Omarchy Music app"
   property bool draftShortcutHints: true
+  property bool draftShowLyrics: true
   property bool shortcutModeLatched: false
   property int heldModifierFlags: 0
   property bool panelCursorActive: false
@@ -180,6 +181,7 @@ Item {
     draftShowMiniPlayer = service.showMiniPlayer
     draftShortcutPlayer = service.shortcutPlayer
     draftShortcutHints = service.shortcutHintsEnabled
+    draftShowLyrics = service.showLyrics
     draftShowTitle = service.showTrackTitle
     draftShowArtist = service.showArtistName
     draftShowPausedTrack = service.showPausedTrack
@@ -198,6 +200,7 @@ Item {
       showMiniPlayer: draftShowMiniPlayer ? "On" : "Off",
       shortcutPlayer: draftShortcutPlayer,
       shortcutHints: draftShortcutHints ? "On" : "Off",
+      showLyrics: draftShowLyrics ? "On" : "Off",
       showTrackTitle: draftShowTitle ? "On" : "Off",
       showArtistName: draftShowArtist ? "On" : "Off",
       showPausedTrack: draftShowPausedTrack ? "On" : "Off",
@@ -1578,7 +1581,7 @@ Item {
   }
 
   function shortcutRows() {
-    return [
+    var rows = [
       { section: "SEARCH", action: "Focus search", keys: "Ctrl+F or /" },
       { action: "Toggle this area / all of Spotify", keys: "Ctrl+F or /" },
       { action: "Leave search", keys: "Esc" },
@@ -1612,6 +1615,9 @@ Item {
       { action: "Hide visible shortcut hints", keys: "Ctrl+H" },
       { action: "Show this reference", keys: "Ctrl+/" }
     ]
+    if (!service || !service.showLyrics)
+      rows = rows.filter(function(row) { return row.keys !== "Ctrl+Shift+L" })
+    return rows
   }
 
   function scopedSearchText() {
@@ -1800,7 +1806,7 @@ Item {
   }
 
   function openLyrics() {
-    if (!service || !service.currentLyricsSong) return
+    if (!service || !service.lyricsAvailable) return
     var result = service.requestLyrics(lyricsRequestKey)
     if (result !== "opening") lyricsInstallPopup.open()
   }
@@ -6375,6 +6381,30 @@ Item {
                   root.draftShortcutHints = !root.draftShortcutHints
                   root.persistDraftSettings()
                 }
+              }
+
+              Button {
+                text: "Lyrics button · "
+                  + (root.draftShowLyrics ? "On" : "Off")
+                iconText: "󰑬"
+                foreground: root.foreground
+                selected: root.draftShowLyrics
+                tooltipText: root.draftShowLyrics
+                  ? "Show the Omasing lyrics button in the player and mini-player"
+                  : "Hide the lyrics button and disable Ctrl+Shift+L"
+                onClicked: {
+                  root.draftShowLyrics = !root.draftShowLyrics
+                  root.persistDraftSettings()
+                }
+              }
+
+              Text {
+                width: parent.width
+                text: "Hide the lyrics button if you do not use Omasing. Playback is unaffected, and the button returns whenever you turn this back on."
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
               }
 
               Text {
