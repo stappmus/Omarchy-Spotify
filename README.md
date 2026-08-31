@@ -105,8 +105,23 @@ The essentials are always one click away, without reopening the full app.
 
 ## Set it up
 
-In Omarchy Spotify's Settings, choose whether **Super+Shift+M** launches
-Omarchy's Music app, toggles the full player, or toggles the mini-player.
+To replace Omarchy's existing **Super+Shift+M · Music** binding, add this to
+`~/.config/hypr/bindings.lua`:
+
+```lua
+  hl.unbind("SUPER + SHIFT + M") -- previously: Music
+  o.bind("SUPER + SHIFT + M", "Omarchy Spotify",
+    "omarchy shell -q quickshell.spotify.player togglePlayer")
+```
+
+Run `hyprctl reload` and check `hyprctl configerrors` after saving. Until the
+binding is replaced, Omarchy's stock Music binding stays active and the
+Settings choice below has no effect on the shortcut.
+
+In Omarchy Spotify's Settings, choose whether that shortcut launches Omarchy's
+Music app, toggles the full player, or toggles the mini-player. Separate
+bindings can call `toggleMiniPlayer` or `toggleFullPlayer` on the same
+`quickshell.spotify.player` target.
 
 Raise or lower Spotify volume from a keybinding without opening the player:
 

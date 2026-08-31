@@ -81,7 +81,7 @@
           "Mini player"
         ],
         "defaultValue": "Omarchy Music app",
-        "description": "Choose whether Super+Shift+M launches Omarchy's Music app, the full player, or the mini-player."
+        "description": "Choose whether Super+Shift+M launches Omarchy's Music app, the full player, or the mini-player. Requires the one-time bindings.lua override from the README; without it Omarchy's stock Music binding stays active."
       },
       {
         "key": "shortcutHints",
