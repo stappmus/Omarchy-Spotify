@@ -57,7 +57,10 @@ BarWidget {
     accent: Color.accent
   }
   readonly property bool opened: popupOpen
-  readonly property var miniShortcutRows: [
+  readonly property var miniShortcutRows: spotify && spotify.showLyrics
+    ? allMiniShortcutRows
+    : allMiniShortcutRows.filter(function(row) { return row.keys !== "Ctrl+Shift+L" })
+  readonly property var allMiniShortcutRows: [
     { keys: "Tab / arrows / HJKL", action: "Select a control" },
     { keys: "Enter", action: "Activate selected button" },
     { keys: "Left / Right", action: "Adjust selected slider" },
@@ -310,7 +313,7 @@ BarWidget {
   }
 
   function openLyrics() {
-    if (!spotify || !spotify.currentLyricsSong) return
+    if (!spotify || !spotify.lyricsAvailable) return
     var result = spotify.requestLyrics(lyricsRequestKey)
     if (result !== "opening") {
       lyricsInstallPromptVisible = true

@@ -38,6 +38,7 @@ Item {
     showMiniPlayer: "On",
     shortcutPlayer: "Omarchy Music app",
     shortcutHints: "On",
+    showLyrics: "On",
     showTrackTitle: "On",
     showArtistName: "Off",
     showPausedTrack: "On",
@@ -55,6 +56,7 @@ Item {
   readonly property string shortcutPlayer: Api.normalizedShortcutPlayer(
     settings.shortcutPlayer)
   readonly property bool shortcutHintsEnabled: String(settings.shortcutHints || "On") !== "Off"
+  readonly property bool showLyrics: String(settings.showLyrics || "On") !== "Off"
   readonly property bool showTrackTitle: String(settings.showTrackTitle || "On") !== "Off"
   readonly property bool showArtistName: String(settings.showArtistName || "Off") === "On"
   readonly property bool showPausedTrack: String(settings.showPausedTrack || "On") !== "Off"
@@ -124,7 +126,7 @@ Item {
     && currentTrackId !== ""
   readonly property var currentLyricsSong: Api.lyricsSong(currentTrackId,
     title, artist, album, lengthSeconds, artUrl, positionSeconds)
-  readonly property bool lyricsAvailable: currentLyricsSong !== null
+  readonly property bool lyricsAvailable: showLyrics && currentLyricsSong !== null
   readonly property string lyricsPluginId: "stappmus.lyrics"
   readonly property string lyricsPluginUrl: "https://github.com/stappmus/Omasing.git"
   readonly property string lyricsPluginAvailability: {
@@ -461,7 +463,7 @@ Item {
     var next = defaults()
     var source = values || {}
     var keys = ["deviceName", "idleShutdownMinutes", "showMiniPlayer",
-      "shortcutPlayer", "shortcutHints", "showTrackTitle", "showArtistName",
+      "shortcutPlayer", "shortcutHints", "showLyrics", "showTrackTitle", "showArtistName",
       "showPausedTrack", "scrollBarText", "scrollSpeed", "maxBarTextWidth",
       "audioQuality"]
     for (var i = 0; i < keys.length; i++) {
@@ -474,6 +476,7 @@ Item {
     next.showMiniPlayer = String(next.showMiniPlayer || "On") === "Off" ? "Off" : "On"
     next.shortcutPlayer = Api.normalizedShortcutPlayer(next.shortcutPlayer)
     next.shortcutHints = Api.normalizedShortcutHints(next.shortcutHints)
+    next.showLyrics = String(next.showLyrics || "On") === "Off" ? "Off" : "On"
     next.showTrackTitle = String(next.showTrackTitle || "On") === "Off" ? "Off" : "On"
     next.showArtistName = String(next.showArtistName || "Off") === "On" ? "On" : "Off"
     next.showPausedTrack = String(next.showPausedTrack || "On") === "Off" ? "Off" : "On"
