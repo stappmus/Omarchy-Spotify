@@ -177,11 +177,13 @@ BorderSurface {
       color: Style.normalFillFor(root.foreground, root.accent)
       borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
 
-      Image {
+      RetryImage {
         id: rowArtwork
         anchors.fill: parent
         anchors.margins: Style.space(2)
-        source: root.itemData && root.itemData.imageUrl ? root.itemData.imageUrl : ""
+        requestedSource: root.itemData && root.itemData.imageUrl
+          ? root.itemData.imageUrl : ""
+        retryLimit: 4
         sourceSize.width: 112
         sourceSize.height: 112
         fillMode: Image.PreserveAspectFit

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Retry failed remote artwork downloads with bounded exponential backoff, so
+  covers recover after the network reconnects instead of remaining placeholders
+  until their source changes.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the

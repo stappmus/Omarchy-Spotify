@@ -3882,10 +3882,11 @@ Item {
                 color: Style.selectedFillFor(root.foreground, root.accent)
                 borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
 
-                Image {
+                RetryImage {
+                  id: playerArtworkImage
                   anchors.fill: parent
                   anchors.margins: Style.space(2)
-                  source: root.service ? root.service.artUrl : ""
+                  requestedSource: root.service ? root.service.artUrl : ""
                   sourceSize.width: 136
                   sourceSize.height: 136
                   fillMode: Image.PreserveAspectFit
@@ -3896,7 +3897,7 @@ Item {
 
                 Text {
                   anchors.centerIn: parent
-                  visible: !root.service || root.service.artUrl === ""
+                  visible: playerArtworkImage.status !== Image.Ready
                   text: "󰎈"
                   color: root.muted
                   font.family: root.fontFamily
@@ -4554,11 +4555,11 @@ Item {
               color: Style.selectedFillFor(root.foreground, root.accent)
               borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
 
-              Image {
+              RetryImage {
                 id: detailArtwork
                 anchors.fill: parent
                 anchors.margins: Style.space(2)
-                source: root.service && root.service.detailItem
+                requestedSource: root.service && root.service.detailItem
                   ? String(root.service.detailItem.imageUrl || "") : ""
                 sourceSize.width: 256
                 sourceSize.height: 256
