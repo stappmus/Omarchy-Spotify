@@ -95,6 +95,7 @@ Item {
   readonly property bool sessionPending: service && service.sessionPending
   readonly property bool compactHeight: window.height < Style.space(620)
   readonly property bool compactWidth: window.width < Style.space(760)
+  readonly property bool extraNarrowWidth: window.width < Style.space(440)
   readonly property var activeSearchScope: Api.searchScope(currentTab,
     service ? service.detailItem : null,
     service ? service.selectedPlaylist : null, homeType, libraryType)
@@ -1927,6 +1928,18 @@ Item {
     return items
   }
 
+  function extraNarrowNavigationItems() {
+    return [
+      { id: "home", label: "For you", icon: "󰎆" },
+      { id: "discover", label: "Discover", icon: "󰲸" },
+      { id: "queue", label: "Queue", icon: "󰐕" },
+      { id: "library", label: "Your Library", icon: "󰋑" },
+      { id: "playlists", label: "Playlists", icon: "󱁐" },
+      { id: "devices", label: "Devices", icon: "󰋋" },
+      { id: "setup", label: "Settings", icon: "󰒓" }
+    ]
+  }
+
   function radioNavigationSelected() {
     return currentTab === "playlists" && service && service.lastRadioPlaylist
       && service.selectedPlaylist
@@ -3278,7 +3291,7 @@ Item {
 
           BorderSurface {
             id: sidebar
-            visible: root.currentTab !== "login"
+            visible: root.currentTab !== "login" && !root.extraNarrowWidth
             width: visible
               ? (root.compactWidth ? Style.space(54)
                 : Math.min(Style.space(214), Math.max(Style.space(176), workspace.width * 0.225)))
@@ -3298,12 +3311,13 @@ Item {
               height: visible ? Style.space(42) : 0
               spacing: Style.space(9)
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
+              OpticalGlyph {
+                width: root.compactWidth ? parent.width : Style.space(18)
+                height: parent.height
                 text: ""
                 color: root.accent
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.iconLarge
+                fontFamily: root.fontFamily
+                fontSize: Style.font.iconLarge
               }
 
               Column {
@@ -3353,11 +3367,13 @@ Item {
                   readonly property bool radioEntry: modelData.id === "radio"
                   width: primaryNavigation.width
                   text: root.compactWidth ? "" : modelData.label
-                  iconText: modelData.icon
+                  iconText: root.compactWidth ? "" : modelData.icon
                   foreground: root.foreground
                   selected: radioEntry ? root.radioNavigationSelected()
                     : root.currentTab === modelData.id
                   leftAlign: !root.compactWidth
+                  horizontalPadding: root.compactWidth
+                    ? 0 : Style.spacing.controlPaddingX
                   focusable: false
                   hasCursor: root.cursorOn("sidebar", "nav-" + modelData.id)
                   tooltipText: radioEntry && root.service && root.service.lastRadioPlaylist
@@ -3375,6 +3391,16 @@ Item {
                     region: "sidebar"
                     action: "nav-" + modelData.id
                     sequences: root.primaryNavigationShortcut(modelData.id)
+                  }
+                  OpticalGlyph {
+                    anchors.fill: parent
+                    visible: root.compactWidth
+                    text: modelData.icon
+                    color: parent.selected
+                      ? Style.selectedStateColor(root.foreground, root.accent)
+                      : root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.icon
                   }
                 }
               }
@@ -3416,10 +3442,12 @@ Item {
               Button {
                 width: parent.width
                 text: root.compactWidth ? "" : "Liked Songs"
-                iconText: "󰋑"
+                iconText: root.compactWidth ? "" : "󰋑"
                 foreground: root.foreground
                 selected: root.currentTab === "library"
                 leftAlign: !root.compactWidth
+                horizontalPadding: root.compactWidth
+                  ? 0 : Style.spacing.controlPaddingX
                 focusable: false
                 hasCursor: root.cursorOn("sidebar", "nav-library")
                 tooltipText: "Liked Songs"
@@ -3428,20 +3456,34 @@ Item {
                   if (on) root.setPanelCursor("sidebar", "nav-library")
                 }
                 KeyHint { region: "sidebar"; action: "nav-library" }
+                OpticalGlyph {
+                  anchors.fill: parent
+                  visible: root.compactWidth
+                  text: "󰋑"
+                  color: parent.selected
+                    ? Style.selectedStateColor(root.foreground, root.accent)
+                    : root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.icon
+                }
               }
 
-              Row {
+              Grid {
                 width: parent.width
+                columns: root.compactWidth ? 1 : 2
                 spacing: Style.space(2)
 
                 Button {
-                  width: Math.max(20, parent.width - createPlaylistShortcut.width
-                    - parent.spacing)
+                  width: root.compactWidth ? parent.width
+                    : Math.max(20, parent.width - createPlaylistShortcut.width
+                      - parent.spacing)
                   text: root.compactWidth ? "" : "Playlists"
-                  iconText: "󱁐"
+                  iconText: root.compactWidth ? "" : "󱁐"
                   foreground: root.foreground
                   selected: root.currentTab === "playlists"
                   leftAlign: !root.compactWidth
+                  horizontalPadding: root.compactWidth
+                    ? 0 : Style.spacing.controlPaddingX
                   focusable: false
                   hasCursor: root.cursorOn("sidebar", "nav-playlists")
                   tooltipText: "Playlists"
@@ -3450,12 +3492,22 @@ Item {
                     if (on) root.setPanelCursor("sidebar", "nav-playlists")
                   }
                   KeyHint { region: "sidebar"; action: "nav-playlists" }
+                  OpticalGlyph {
+                    anchors.fill: parent
+                    visible: root.compactWidth
+                    text: "󱁐"
+                    color: parent.selected
+                      ? Style.selectedStateColor(root.foreground, root.accent)
+                      : root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.icon
+                  }
                 }
 
                 Button {
                   id: createPlaylistShortcut
                   width: root.compactWidth
-                    ? Math.max(20, (parent.width - parent.spacing) / 2) : implicitWidth
+                    ? parent.width : implicitWidth
                   text: "+"
                   foreground: root.foreground
                   fontSize: Style.font.subtitle
@@ -3552,7 +3604,8 @@ Item {
               anchors.bottom: parent.bottom
               anchors.margins: Style.space(8)
               text: root.compactWidth ? "" : "Settings"
-              iconText: root.service && root.service.auth.loggedIn ? "󰀄" : "󰒓"
+              iconText: root.compactWidth ? ""
+                : (root.service && root.service.auth.loggedIn ? "󰀄" : "󰒓")
               foreground: root.foreground
               selected: root.currentTab === "setup"
               leftAlign: !root.compactWidth
@@ -3564,19 +3617,70 @@ Item {
               onHovered: function(on) {
                 if (on) root.setPanelCursor("sidebar", "nav-settings")
               }
+              OpticalGlyph {
+                anchors.fill: parent
+                visible: root.compactWidth
+                text: root.service && root.service.auth.loggedIn ? "󰀄" : "󰒓"
+                color: parent.selected
+                  ? Style.selectedStateColor(root.foreground, root.accent)
+                  : root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.icon
+              }
             }
           }
 
           Item {
             id: contentPane
-            width: Math.max(220, parent.width - sidebar.width - workspace.spacing)
+            width: Math.max(1, parent.width - sidebar.width - workspace.spacing)
             height: parent.height
+
+            Row {
+              id: extraNarrowNavigation
+              visible: root.extraNarrowWidth && root.currentTab !== "login"
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              height: visible ? Style.space(32) : 0
+              spacing: Style.space(3)
+
+              Repeater {
+                model: root.extraNarrowNavigationItems()
+
+                Button {
+                  required property var modelData
+                  width: Math.max(1, (extraNarrowNavigation.width
+                    - extraNarrowNavigation.spacing * 6) / 7)
+                  height: extraNarrowNavigation.height
+                  horizontalPadding: 0
+                  verticalPadding: 0
+                  foreground: root.foreground
+                  selected: root.currentTab === modelData.id
+                  tooltipText: modelData.label
+                  focusable: false
+                  onClicked: root.chooseTab(modelData.id)
+
+                  OpticalGlyph {
+                    anchors.fill: parent
+                    text: modelData.icon
+                    color: parent.selected
+                      ? Style.selectedStateColor(root.foreground, root.accent)
+                      : root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.icon
+                  }
+                }
+              }
+            }
 
             Row {
               id: pageHeader
               anchors.left: parent.left
               anchors.right: parent.right
-              anchors.top: parent.top
+              anchors.top: extraNarrowNavigation.visible
+                ? extraNarrowNavigation.bottom : parent.top
+              anchors.topMargin: extraNarrowNavigation.visible
+                ? Style.space(4) : 0
               height: Style.space(52)
               spacing: Style.space(5)
 
@@ -3626,7 +3730,7 @@ Item {
 
               Button {
                 id: shortcutHintsDismissButton
-                visible: root.shortcutHintsActive
+                visible: root.shortcutHintsActive && !root.extraNarrowWidth
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Ctrl+H · Hide hints"
                 foreground: root.foreground
@@ -3638,6 +3742,7 @@ Item {
 
               Button {
                 id: shortcutHelpButton
+                visible: !root.extraNarrowWidth
                 anchors.verticalCenter: parent.verticalCenter
                 text: "?"
                 foreground: root.foreground
@@ -3864,17 +3969,22 @@ Item {
             id: playerRow
             anchors.fill: parent
             anchors.margins: Style.space(10)
-            spacing: Style.space(12)
+            spacing: Style.space(root.extraNarrowWidth ? 6 : 12)
 
             Item {
               id: nowPlaying
-              width: Math.max(Style.space(170), Math.min(Style.space(240), playerRow.width * 0.29))
+              width: root.extraNarrowWidth
+                ? Math.max(Style.space(80), playerRow.width - transport.width
+                  - playerRow.spacing)
+                : Math.max(Style.space(170), Math.min(Style.space(240),
+                  playerRow.width * 0.29))
               height: parent.height
               readonly property real metadataSpacing: Style.space(9)
 
               BorderSurface {
                 id: nowPlayingArtwork
-                width: Math.min(parent.height, Style.space(68))
+                width: Math.min(parent.height,
+                  Style.space(root.extraNarrowWidth ? 52 : 68))
                 height: width
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
@@ -3932,8 +4042,9 @@ Item {
 
                   Row {
                     id: nowPlayingActions
-                    visible: currentTrackLikeButton.visible
+                    visible: !root.extraNarrowWidth && (currentTrackLikeButton.visible
                       || currentTrackMoreButton.visible
+                    )
                     spacing: Style.space(1)
                     anchors.verticalCenter: parent.verticalCenter
 
@@ -4091,7 +4202,11 @@ Item {
 
             Column {
               id: transport
-              width: Math.max(120, parent.width - nowPlaying.width - outputControls.width - parent.spacing * 2)
+              width: root.extraNarrowWidth
+                ? Math.max(Style.space(88), Math.min(Style.space(108),
+                  parent.width * 0.42))
+                : Math.max(120, parent.width - nowPlaying.width
+                  - outputControls.width - parent.spacing * 2)
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(1)
 
@@ -4100,6 +4215,7 @@ Item {
                 spacing: Style.space(3)
 
                 TransportButton {
+                  visible: !root.extraNarrowWidth
                   glyphText: "󰒟"
                   foreground: root.foreground
                   selected: root.service && root.service.shuffle
@@ -4152,6 +4268,7 @@ Item {
                   KeyHint { region: "footer"; action: "next"; sequences: ["Ctrl+Right"] }
                 }
                 TransportButton {
+                  visible: !root.extraNarrowWidth
                   glyphText: root.service && root.service.repeatMode === "track" ? "󰑘" : "󰑖"
                   foreground: root.foreground
                   selected: root.service && root.service.repeatMode !== "off"
@@ -4167,6 +4284,7 @@ Item {
                   KeyHint { region: "footer"; action: "repeat"; sequences: ["Ctrl+R"] }
                 }
                 TransportButton {
+                  visible: !root.extraNarrowWidth
                   glyphText: "󰎈"
                   foreground: root.foreground
                   hasCursor: root.cursorOn("footer", "lyrics")
@@ -4250,7 +4368,10 @@ Item {
 
             Column {
               id: outputControls
-              width: Math.max(Style.space(128), Math.min(Style.space(170), playerRow.width * 0.22))
+              visible: !root.extraNarrowWidth
+              width: visible
+                ? Math.max(Style.space(128), Math.min(Style.space(170),
+                  playerRow.width * 0.22)) : 0
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(3)
 
@@ -4374,7 +4495,7 @@ Item {
         anchors.fill: parent
         spacing: Style.space(7)
 
-        Row {
+        Flow {
           id: homeTypes
           width: parent.width
           spacing: Style.space(4)
@@ -5114,7 +5235,7 @@ Item {
         anchors.fill: parent
         spacing: Style.space(7)
 
-        Row {
+        Flow {
           id: searchTypes
           width: parent.width
           spacing: Style.space(3)
@@ -5251,7 +5372,7 @@ Item {
         anchors.fill: parent
         spacing: Style.space(7)
 
-        Row {
+        Flow {
           id: libraryTypes
           width: parent.width
           spacing: Style.space(4)
