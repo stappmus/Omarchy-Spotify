@@ -1236,7 +1236,7 @@ BarWidget {
         visible: root.lyricsExpanded
         client: root.spotify ? root.spotify.lyrics : null
         positionSeconds: root.spotify ? root.spotify.positionSeconds : 0
-        playing: root.spotify && root.spotify.playing
+        playing: !!(root.spotify && root.spotify.playing)
         foreground: root.foreground
         muted: root.muted
         fontFamily: root.bar ? root.bar.fontFamily : Style.font.family

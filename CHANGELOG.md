@@ -11,9 +11,10 @@
   a 10-image session cache so repeat clicks do not search again. Any key or
   click dismisses the window. Spotify thumbnails remain the fallback. The zoom
   window is locked to the image size from both the mini player and full player.
-- Timed lyrics lead playback by 550 ms, matching the Windows miniplayer, and
-  refresh the playhead every 100 ms while lyrics are open. The full player's
-  lyrics button toggles the pane closed when it is already showing.
+- Timed lyrics interpolate the playhead on the display clock and lead
+  playback by 800 ms so the highlighted line matches the vocal. The full
+  player's lyrics button toggles the overlay closed; it is no longer a
+  Qt Popup that reopened on the same click.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the

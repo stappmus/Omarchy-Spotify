@@ -9,8 +9,8 @@ Omarchy Spotify runs as a plugin inside Omarchy's existing `omarchy-shell`
 Quickshell process. It provides a shared service, a bar widget, and a lazy-loaded
 panel. There is no embedded website, browser engine, second shell process, or
 resident helper process. Timed lyrics are fetched from LRCLIB over
-XMLHttpRequest and parsed in `Api.js`. Highlighting leads playback by 550 ms
-and samples position every 100 ms while lyrics are open. Album-art zoom
+XMLHttpRequest and parsed in `Api.js`. Highlighting interpolates MPRIS position on the display clock and leads
+playback by 800 ms so the current line matches the vocal. Album-art zoom
 searches the iTunes Search API for a 1200×1200 cover and keeps the ten most
 recent URLs in memory.
 

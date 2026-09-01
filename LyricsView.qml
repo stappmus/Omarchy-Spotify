@@ -14,13 +14,37 @@ Item {
   property string fontFamily: Style.font.family
   property bool followPlayback: true
   property string trackKey: ""
+  property real positionAnchor: 0
+  property double positionAnchorAt: 0
+  property double clockMs: 0
 
   readonly property var timedLines: client ? client.timedLines : []
   readonly property bool hasTimed: timedLines && timedLines.length > 0
   readonly property string state: client ? String(client.state || "idle") : "idle"
+  readonly property real interpolatedSeconds: {
+    clockMs
+    if (!playing || positionAnchorAt <= 0) return positionSeconds
+    return positionAnchor + Math.max(0, clockMs - positionAnchorAt) / 1000
+  }
   readonly property int activeIndex: hasTimed
     ? Api.currentLineIndex(timedLines,
-      Api.lyricsSyncPositionMs(positionSeconds, playing)) : -1
+      Api.lyricsSyncPositionMs(interpolatedSeconds, playing)) : -1
+
+  function capturePosition() {
+    positionAnchor = positionSeconds
+    positionAnchorAt = Date.now()
+    clockMs = positionAnchorAt
+  }
+
+  onPositionSecondsChanged: capturePosition()
+  onPlayingChanged: capturePosition()
+  onVisibleChanged: if (visible) capturePosition()
+  Component.onCompleted: capturePosition()
+
+  FrameAnimation {
+    running: root.visible && root.hasTimed
+    onTriggered: root.clockMs = Date.now()
+  }
 
   onTrackKeyChanged: followPlayback = true
   onActiveIndexChanged: {

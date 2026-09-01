@@ -13,6 +13,7 @@ Item {
   property var manifest: null
   property var service: null
   property bool opened: false
+  property bool lyricsOpen: false
   property bool closingFromHost: false
   property bool escapeCloseArmed: false
   property real volumeBeforeMute: 0.5
@@ -104,7 +105,7 @@ Item {
     && artistSearchText.trim() !== ""
   readonly property bool shortcutsBlocked: mediaContextMenu.opened
     || playlistPicker.opened || createPlaylistPopup.opened || sleepPopup.opened
-    || shortcutHelpPopup.opened || lyricsPopup.opened
+    || shortcutHelpPopup.opened || lyricsOpen
   readonly property bool shortcutHintsEnabled: service
     ? service.shortcutHintsEnabled : true
   readonly property bool typingInField: {
@@ -317,8 +318,8 @@ Item {
   }
 
   function dismissTransientPopup() {
-    if (lyricsPopup.opened) {
-      lyricsPopup.close()
+    if (lyricsOpen) {
+      lyricsOpen = false
       return true
     }
     if (shortcutHelpPopup.opened) {
@@ -1460,7 +1461,7 @@ Item {
       return handleContextMenuKey(event)
 
     if (createPlaylistPopup.opened || playlistPicker.opened
-        || shortcutHelpPopup.opened || lyricsPopup.opened)
+        || shortcutHelpPopup.opened || lyricsOpen)
       return false
 
     if (unifiedSearchField.activeFocus && tabbing) {
@@ -1800,12 +1801,8 @@ Item {
 
   function toggleLyrics() {
     if (!service || !service.lyricsAvailable) return
-    if (lyricsPopup.opened) {
-      lyricsPopup.close()
-      return
-    }
-    service.ensureLyrics()
-    lyricsPopup.open()
+    lyricsOpen = !lyricsOpen
+    if (lyricsOpen) service.ensureLyrics()
   }
 
   function toggleArtwork() {
@@ -2313,33 +2310,29 @@ Item {
     fontFamily: root.fontFamily
   }
 
-  Popup {
-    id: lyricsPopup
+  Item {
+    id: lyricsOverlay
     parent: window.contentItem
+    visible: root.lyricsOpen && window.visible
+    z: 100
     x: Math.max(Style.space(16), (window.width - width) / 2)
     y: Math.max(Style.space(16), window.height - height - Style.space(140))
     width: Math.min(Style.space(480), window.width - Style.space(48))
     height: Math.min(Style.space(420), window.height - Style.space(180))
-    padding: Style.space(10)
-    modal: false
-    focus: true
-    closePolicy: Popup.CloseOnEscape
 
-    onOpened: root.disarmEscapeClose()
-    onClosed: Qt.callLater(function() { focusScope.forceActiveFocus() })
-
-    background: BorderSurface {
+    BorderSurface {
+      anchors.fill: parent
       color: root.popupBackground
       radius: Style.cornerRadius
       borderSpec: root.popupBorderSpec
     }
 
-    contentItem: LyricsView {
-      width: parent.width
-      height: parent.height
+    LyricsView {
+      anchors.fill: parent
+      anchors.margins: Style.space(10)
       client: root.service ? root.service.lyrics : null
       positionSeconds: root.service ? root.service.positionSeconds : 0
-      playing: root.service && root.service.playing
+      playing: !!(root.service && root.service.playing)
       foreground: root.foreground
       muted: root.muted
       fontFamily: root.fontFamily
@@ -2978,6 +2971,7 @@ Item {
     minimumSize: Qt.size(700, 560)
 
     onVisibleChanged: {
+      if (!visible) root.lyricsOpen = false
       if (!visible && root.opened && !root.closingFromHost) root.requestClose()
     }
     FocusScope {
@@ -4181,7 +4175,7 @@ Item {
                 TransportButton {
                   glyphText: "󰎈"
                   foreground: root.foreground
-                  selected: lyricsPopup.opened
+                  selected: root.lyricsOpen
                   hasCursor: root.cursorOn("footer", "lyrics")
                   tooltipText: root.shortcutHint("Show or hide lyrics",
                     "Ctrl+Shift+L")

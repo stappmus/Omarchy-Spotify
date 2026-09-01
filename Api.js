@@ -977,12 +977,12 @@ var MAX_LYRIC_TEXT_BYTES = 100000
 var DEGENERATE_PLAIN_MIN_CHARS = 80
 var ARTWORK_CACHE_LIMIT = 10
 var LYRICS_CACHE_LIMIT = 20
-var LYRICS_PLAYHEAD_LEAD_MS = 550
+var LYRICS_PLAYHEAD_LEAD_MS = 800
 var ARTWORK_SIZE_TOKENS = ["1200x1200bb", "600x600bb"]
 
 function lyricsSyncPositionMs(positionSeconds, playing) {
   var position = Math.max(0, Number(positionSeconds) || 0) * 1000
-  if (playing === true) position += LYRICS_PLAYHEAD_LEAD_MS
+  if (playing) position += LYRICS_PLAYHEAD_LEAD_MS
   return position
 }
 
