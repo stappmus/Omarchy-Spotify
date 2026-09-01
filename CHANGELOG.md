@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Replace the optional Omasing handoff with built-in timed lyrics. The mini
+  player expands a Lyrics pane under the controls; the full player opens the
+  same view with `Ctrl+Shift+L`. Lines follow interpolated playback position
+  from LRCLIB synced lyrics, with plain text when timestamps are missing.
+- Click album art to open a square, Hyprland-centered floating cover. High-res
+  artwork comes from the iTunes Search API (album-aware match, 1200×1200), with
+  a 10-image session cache so repeat clicks do not search again. Any key or
+  click dismisses the window. Spotify thumbnails remain the fallback. The zoom
+  window is locked to the image size from both the mini player and full player.
+- Timed lyrics interpolate the playhead on the display clock and lead
+  playback by 800 ms so the highlighted line matches the vocal. The full
+  player's lyrics button toggles the overlay closed; it is no longer a
+  Qt Popup that reopened on the same click.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the

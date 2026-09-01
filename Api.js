@@ -968,6 +968,346 @@ function sessionWithoutLyricsInstall(session) {
   return next
 }
 
+var LRCLIB_GET_URL = "https://lrclib.net/api/get"
+var LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
+var ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
+var LYRICS_USER_AGENT = "OmarchySpotify-Lyrics/1.0.3 (https://github.com/stappmus/Omarchy-Spotify)"
+var MAX_LYRIC_LINES = 800
+var MAX_LYRIC_TEXT_BYTES = 100000
+var DEGENERATE_PLAIN_MIN_CHARS = 80
+var ARTWORK_CACHE_LIMIT = 10
+var LYRICS_CACHE_LIMIT = 20
+var LYRICS_PLAYHEAD_LEAD_MS = 800
+var ARTWORK_SIZE_TOKENS = ["1200x1200bb", "600x600bb"]
+
+function lyricsSyncPositionMs(positionSeconds, playing) {
+  var position = Math.max(0, Number(positionSeconds) || 0) * 1000
+  if (playing) position += LYRICS_PLAYHEAD_LEAD_MS
+  return position
+}
+
+function lyricsCacheKey(song) {
+  if (!song || typeof song !== "object") return ""
+  return [String(song.title || "").trim().toLowerCase(),
+    String(song.artist || "").trim().toLowerCase(),
+    String(song.album || "").trim().toLowerCase(),
+    Math.round(Number(song.duration) || 0)].join("|")
+}
+
+function artworkCacheKey(title, artist, album) {
+  return [String(title || "").trim().toLowerCase(),
+    String(artist || "").trim().toLowerCase(),
+    String(album || "").trim().toLowerCase()].join("|")
+}
+
+function lruCacheGet(entries, key) {
+  var source = Array.isArray(entries) ? entries : []
+  if (!key) return { hit: false, value: null, entries: source }
+  for (var i = 0; i < source.length; i++) {
+    if (!source[i] || source[i].key !== key) continue
+    var hit = source[i]
+    var next = [hit]
+    for (var j = 0; j < source.length; j++)
+      if (j !== i) next.push(source[j])
+    return { hit: true, value: hit.value, entries: next }
+  }
+  return { hit: false, value: null, entries: source }
+}
+
+function lruCachePut(entries, key, value, limit) {
+  var cap = Math.max(1, Number(limit) || ARTWORK_CACHE_LIMIT)
+  var source = Array.isArray(entries) ? entries : []
+  if (!key) return source
+  var next = [{ key: key, value: value }]
+  for (var i = 0; i < source.length && next.length < cap; i++)
+    if (source[i] && source[i].key !== key) next.push(source[i])
+  return next
+}
+
+function normalizeNewlines(text) {
+  return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+}
+
+function safeLyricText(value) {
+  if (value === null || value === undefined) return ""
+  if (typeof value !== "string") return ""
+  return normalizeNewlines(value).trim()
+}
+
+function isDegeneratePlain(plain) {
+  var text = String(plain || "")
+  if (text.indexOf("\n") >= 0) return false
+  return text.length >= DEGENERATE_PLAIN_MIN_CHARS
+}
+
+function lyricTextBytes(text) {
+  var value = String(text || "")
+  var bytes = 0
+  for (var i = 0; i < value.length; i++) {
+    var code = value.charCodeAt(i)
+    if (code <= 0x7f) bytes += 1
+    else if (code <= 0x7ff) bytes += 2
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4
+      i++
+    } else bytes += 3
+  }
+  return bytes
+}
+
+function parseLrc(synced) {
+  var source = safeLyricText(synced)
+  if (!source) return []
+  var offsetMs = 0
+  var offsetMatches = source.match(/\[offset\s*:\s*(-?\d+)\]/ig)
+  if (offsetMatches && offsetMatches.length) {
+    var last = offsetMatches[offsetMatches.length - 1].match(/-?\d+/)
+    offsetMs = last ? Number(last[0]) || 0 : 0
+  }
+  var lines = []
+  var rows = source.split("\n")
+  for (var i = 0; i < rows.length; i++) {
+    if (lines.length >= MAX_LYRIC_LINES) break
+    var line = String(rows[i] || "").trim()
+    if (!line) continue
+    var stampRe = /\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]/g
+    var stamps = []
+    var stamp = stampRe.exec(line)
+    while (stamp) {
+      stamps.push(stamp)
+      stamp = stampRe.exec(line)
+    }
+    if (!stamps.length) continue
+    if (/^\s*\[[a-zA-Z][a-zA-Z0-9_-]*\s*:/.test(line) && !stamps.length)
+      continue
+    var text = line.slice(stamps[stamps.length - 1].index
+      + stamps[stamps.length - 1][0].length).trim()
+    for (var s = 0; s < stamps.length; s++) {
+      if (lines.length >= MAX_LYRIC_LINES) break
+      var minutes = Number(stamps[s][1]) || 0
+      var seconds = Number(stamps[s][2]) || 0
+      var frac = stamps[s][3] || "0"
+      var fracMs = Number((frac + "000").slice(0, 3)) || 0
+      var timeMs = minutes * 60000 + seconds * 1000 + fracMs + offsetMs
+      lines.push({ timeMs: Math.max(0, timeMs), text: text })
+    }
+  }
+  lines.sort(function(a, b) { return a.timeMs - b.timeMs })
+  return lines
+}
+
+function currentLineIndex(lines, positionMs) {
+  var source = Array.isArray(lines) ? lines : []
+  if (!source.length) return -1
+  var position = Math.max(0, Number(positionMs) || 0)
+  var active = -1
+  for (var i = 0; i < source.length; i++) {
+    if ((Number(source[i].timeMs) || 0) <= position) active = i
+    else break
+  }
+  return active
+}
+
+function emptyLyricsResult(state, message, source) {
+  return {
+    state: String(state || "error"),
+    message: String(message || "Could not load lyrics."),
+    source: String(source || ""),
+    plainLyrics: "",
+    timedLines: [],
+    isInstrumental: false
+  }
+}
+
+function lyricsResultFromPayload(payload, source) {
+  var origin = String(source || "lrclib")
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return emptyLyricsResult("error", "Unexpected lyrics response", origin)
+
+  var instrumental = payload.instrumental === true
+  var plain = safeLyricText(payload.plainLyrics)
+  var synced = safeLyricText(payload.syncedLyrics)
+  var rawBytes = lyricTextBytes(plain) + lyricTextBytes(synced)
+  if (rawBytes > MAX_LYRIC_TEXT_BYTES)
+    return emptyLyricsResult("error", "Lyrics response too large", origin)
+
+  if (instrumental && !plain && !synced)
+    return {
+      state: "instrumental",
+      message: "Instrumental",
+      source: origin,
+      plainLyrics: "",
+      timedLines: [],
+      isInstrumental: true
+    }
+
+  if (!plain && !synced)
+    return emptyLyricsResult("notfound", "No lyrics found", origin)
+
+  var timed = synced ? parseLrc(synced) : []
+  if (!plain && synced) {
+    var stripped = []
+    for (var i = 0; i < timed.length; i++)
+      if (timed[i].text) stripped.push(timed[i].text)
+    plain = stripped.join("\n").trim()
+  }
+
+  if (!timed.length && plain && isDegeneratePlain(plain))
+    return emptyLyricsResult("notfound", "No usable lyrics in response", origin)
+
+  if (timed.length > MAX_LYRIC_LINES)
+    return emptyLyricsResult("error", "Lyrics response too large", origin)
+  if (plain && plain.split("\n").length > MAX_LYRIC_LINES)
+    return emptyLyricsResult("error", "Lyrics response too large", origin)
+
+  var total = lyricTextBytes(plain)
+  for (var t = 0; t < timed.length; t++) total += lyricTextBytes(timed[t].text)
+  if (total > MAX_LYRIC_TEXT_BYTES)
+    return emptyLyricsResult("error", "Lyrics response too large", origin)
+
+  return {
+    state: "ready",
+    message: "Lyrics ready",
+    source: origin,
+    plainLyrics: plain,
+    timedLines: timed,
+    isInstrumental: instrumental
+  }
+}
+
+function lyricsResultFromSearch(payload, source) {
+  if (!Array.isArray(payload) || !payload.length)
+    return emptyLyricsResult("notfound", "No lyrics found", source || "lrclib:/api/search")
+  for (var i = 0; i < payload.length; i++) {
+    if (!payload[i] || typeof payload[i] !== "object") continue
+    var result = lyricsResultFromPayload(payload[i], source || "lrclib:/api/search")
+    if (result.state === "ready" || result.state === "instrumental") return result
+  }
+  return emptyLyricsResult("notfound", "No lyrics found", source || "lrclib:/api/search")
+}
+
+function lrclibQuery(song, includeDuration) {
+  if (!song) return null
+  var title = String(song.title || "").trim()
+  var artist = String(song.artist || "").trim()
+  if (!title || !artist) return null
+  var query = { track_name: title, artist_name: artist }
+  var album = String(song.album || "").trim()
+  if (album) query.album_name = album
+  var duration = Math.round(Number(song.duration) || 0)
+  if (includeDuration !== false && duration >= 1 && duration <= 3600)
+    query.duration = duration
+  return query
+}
+
+function safeExternalUrl(url, allowedHosts) {
+  var value = String(url || "").trim()
+  if (value.indexOf("https://") !== 0) return ""
+  var rest = value.slice(8)
+  var slash = rest.indexOf("/")
+  var hostPort = slash >= 0 ? rest.slice(0, slash) : rest
+  if (hostPort.indexOf("@") >= 0) return ""
+  var host = hostPort.toLowerCase()
+  var colon = host.lastIndexOf(":")
+  if (colon >= 0) {
+    var port = host.slice(colon + 1)
+    if (port !== "443") return ""
+    host = host.slice(0, colon)
+  }
+  var allowed = Array.isArray(allowedHosts) ? allowedHosts : []
+  for (var i = 0; i < allowed.length; i++) {
+    var candidate = String(allowed[i] || "").toLowerCase()
+    if (!candidate) continue
+    if (candidate.charAt(0) === ".") {
+      if (host === candidate.slice(1) || host.slice(-candidate.length) === candidate)
+        return value
+    } else if (host === candidate) return value
+  }
+  return ""
+}
+
+function safeLrclibUrl(kind) {
+  return kind === "search" ? LRCLIB_SEARCH_URL : LRCLIB_GET_URL
+}
+
+function safeItunesSearchUrl() {
+  return ITUNES_SEARCH_URL
+}
+
+function foldArtworkText(text) {
+  var value = String(text || "")
+  try {
+    if (value.normalize) value = value.normalize("NFKD")
+  } catch (error) {}
+  value = value.replace(/[\u0300-\u036f]/g, "")
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+}
+
+function rewriteArtworkSize(url, sizeToken) {
+  var value = String(url || "")
+  var token = String(sizeToken || "1200x1200bb")
+  return value.replace(/\d+x\d+bb/i, token)
+}
+
+function artworkHostAllowed(url, forArtwork) {
+  if (forArtwork)
+    return !!safeExternalUrl(url, ["mzstatic.com", ".mzstatic.com"])
+  return !!safeExternalUrl(url, ["itunes.apple.com", "www.itunes.apple.com"])
+}
+
+function scoreItunesResult(item, titleNorm, artistNorm, albumNorm) {
+  if (!item || typeof item !== "object") return -1
+  var trackNorm = foldArtworkText(item.trackName)
+  var collectionNorm = foldArtworkText(item.collectionName)
+  var artistHit = foldArtworkText(item.artistName)
+  if (!trackNorm) return -1
+  var score = 0
+  if (titleNorm && trackNorm === titleNorm) score += 100
+  else if (titleNorm && (trackNorm.indexOf(titleNorm + " ") === 0
+      || trackNorm.indexOf(titleNorm) >= 0))
+    score += 40
+  else return -1
+  if (albumNorm) {
+    if (collectionNorm === albumNorm) score += 80
+    else if (collectionNorm.indexOf(albumNorm) >= 0
+        || albumNorm.indexOf(collectionNorm) >= 0)
+      score += 50
+    else score -= 30
+  }
+  if (artistNorm && artistHit.indexOf(artistNorm) >= 0) score += 20
+  else if (artistNorm && artistHit && artistNorm.indexOf(artistHit) < 0)
+    score -= 10
+  if (titleNorm && trackNorm === titleNorm) score += 5
+  return score
+}
+
+function pickItunesArtworkUrl(results, title, artist, album) {
+  var source = Array.isArray(results) ? results : []
+  var titleNorm = foldArtworkText(title)
+  var artistNorm = foldArtworkText(artist)
+  var albumNorm = foldArtworkText(album)
+  var bestScore = -1
+  var bestUrl = ""
+  for (var i = 0; i < source.length; i++) {
+    var item = source[i]
+    if (!item || typeof item !== "object") continue
+    var url = String(item.artworkUrl100 || "").trim()
+    if (!url || !/\d+x\d+bb/i.test(url) || !artworkHostAllowed(url, true))
+      continue
+    var score = scoreItunesResult(item, titleNorm, artistNorm, albumNorm)
+    if (score < 0 || score < bestScore) continue
+    bestScore = score
+    bestUrl = url
+  }
+  return bestUrl || ""
+}
+
+function preferredArtworkUrl(artworkUrl100) {
+  var base = String(artworkUrl100 || "")
+  if (!base || !artworkHostAllowed(base, true)) return ""
+  return rewriteArtworkSize(base, ARTWORK_SIZE_TOKENS[0])
+}
+
 var SESSION_STATE_LIMIT = 16000
 
 function normalizedSessionState(value) {
