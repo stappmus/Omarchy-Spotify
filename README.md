@@ -7,8 +7,9 @@ beautiful Omarchy plugin. It uses about **60 MB of RAM** instead of roughly
 **950 MB** for the Spotify desktop client, follows your active Omarchy theme,
 and keeps your music close with an integrated mini player.
 
-Pair it with **Omasing** and lyrics for the song you are playing are fetched
-for you, ready when you want them.
+Timed lyrics live in the mini player and full player. Expand **Lyrics** under
+the mini player to follow the current line, and click the cover for a
+high-resolution album art window.
 
 ## Install
 
@@ -24,13 +25,14 @@ Requires Omarchy 4 and a personal Spotify Premium account.
   desktop client running.
 - **Made for Omarchy.** Every color follows your current theme automatically,
   including light themes.
-- **Always within reach.** Play, pause, skip, seek, change volume, or open
-  lyrics from the mini player in your bar.
+- **Always within reach.** Play, pause, skip, seek, change volume, or expand
+  synced lyrics from the mini player in your bar.
 - **Your full music library.** Search Spotify, browse artists and albums,
   manage playlists and the queue, and move playback between Spotify Connect
   devices.
-- **Lyrics with Omasing.** Open the current song in Omasing and let it find the
-  right lyrics and playback position automatically.
+- **Synced lyrics, in the player.** Expand the mini-player Lyrics pane or press
+  `Ctrl+Shift+L` to follow timed lyrics as the song plays. Click the cover for
+  a centered high-resolution album art window.
 
 ## Familiar from the first click
 
@@ -71,7 +73,7 @@ The mini-player takes keyboard focus when it is opened from a shortcut. Use
 `Tab` or the arrow keys to select every control, `Enter` to activate buttons,
 left/right to adjust a selected slider, and `Esc` to close. The playback
 shortcuts above work there too; `Ctrl+S` toggles shuffle, `Ctrl+R` cycles
-repeat, `Ctrl+Shift+L` opens lyrics, `Ctrl+Shift+A` and `Ctrl+Shift+B` open the
+repeat, `Ctrl+Shift+L` shows or hides synced lyrics, `Ctrl+Shift+A` and `Ctrl+Shift+B` open the
 current artist or album in the full player, and `O` expands the full player.
 
 ## See it in action
@@ -90,12 +92,11 @@ Top albums and EPs sit beside the artist's ten biggest songs, with their
 
 ![Red Hot Chili Peppers artist page with Under the Bridge playing](docs/screenshots/red-hot-chili-peppers-under-the-bridge.png)
 
-### Lyrics, already matched to the song
+### Lyrics, timed to the song
 
-One click sends the current track to Omasing, where the lyrics are fetched and
-lined up with your playback position—ready to auto-scroll as you listen.
-
-![Omarchy Spotify beside Omasing lyrics for Under the Bridge](docs/screenshots/omasing-lyrics-under-the-bridge.png)
+Expand **Lyrics** at the bottom of the mini player. Timed lines highlight and
+scroll with playback. Click the album cover for a floating high-resolution
+art window; any key or click closes it.
 
 ### A mini player that belongs in your desktop
 
