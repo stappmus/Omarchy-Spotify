@@ -268,17 +268,18 @@ Item {
 
   // Search still uses its own serial so a newer query can reject a stale
   // callback created while a token refresh is still in flight.
-  function search(query, callback) {
+  function search(query, type, callback) {
     cancelSearch()
     var serial = searchSerial
     var term = String(query || "").trim()
+    var searchType = Api.normalizedSearchType(type)
     if (!term) {
       if (typeof callback === "function") callback(Api.searchGroups({}, 128), "")
       return
     }
     searchRequest = request("GET", "/search", {
       q: term,
-      type: Api.SEARCH_TYPES.join(","),
+      type: searchType,
       limit: 10
     }, null, function(status, payload, error) {
       if (serial !== root.searchSerial) return

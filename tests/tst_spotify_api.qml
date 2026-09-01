@@ -106,19 +106,27 @@ TestCase {
     verify(requests[3].url.indexOf("/search") >= 0)
   }
 
-  function test_searchKeepsTheExistingAllTypesRequest() {
+  function test_searchRequestsOnlyTheSelectedType() {
     var api = createTemporaryObject(apiComponent, testCase)
     verify(api)
     var callbacks = 0
-    api.search("miles davis", function(groups, error) {
+    api.search("miles davis", "album", function(groups, error) {
       callbacks++
       compare(error, "")
     })
     compare(requests.length, 1)
-    verify(decodeURIComponent(requests[0].url).indexOf(
-      "type=track,artist,album,playlist,show,episode,audiobook") >= 0)
-    complete(requests[0], 200, "{\"tracks\":{\"items\":[]}}")
+    verify(requests[0].url.indexOf("type=album") >= 0)
+    verify(requests[0].url.indexOf("artist%2Calbum") < 0)
+    complete(requests[0], 200, "{\"albums\":{\"items\":[]}}")
     compare(callbacks, 1)
+  }
+
+  function test_searchFallsBackToTracksForAnInvalidType() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    verify(api)
+    api.search("miles davis", "unknown", function() {})
+    compare(requests.length, 1)
+    verify(requests[0].url.indexOf("type=track") >= 0)
   }
 
   function test_searchTimeoutAbortsAndReleasesSlotOnce() {
@@ -126,7 +134,7 @@ TestCase {
     verify(api)
     var callbacks = 0
     var error = ""
-    api.search("stalled", function(groups, reason) {
+    api.search("stalled", "track", function(groups, reason) {
       callbacks++
       error = reason
     })
@@ -151,7 +159,7 @@ TestCase {
     api.request("GET", "/me/player", null, null, function() {})
     compare(api.requestsInFlight, 2)
     var error = ""
-    api.search("queued", function(groups, reason) { error = reason })
+    api.search("queued", "track", function(groups, reason) { error = reason })
     compare(requests.length, 2)
     compare(api.requestQueue.length, 1)
     clock = 9000
@@ -166,7 +174,7 @@ TestCase {
     verify(api)
     var callbacks = 0
     var error = ""
-    api.search("busy", function(groups, reason) {
+    api.search("busy", "track", function(groups, reason) {
       callbacks++
       error = reason
     })
@@ -214,9 +222,9 @@ TestCase {
     verify(api)
     var staleCalls = 0
     var currentCalls = 0
-    api.search("old", function() { staleCalls++ })
+    api.search("old", "track", function() { staleCalls++ })
     var oldRequest = requests[0]
-    api.search("new", function() { currentCalls++ })
+    api.search("new", "artist", function() { currentCalls++ })
     verify(oldRequest.aborted)
     compare(requests.length, 2)
     complete(oldRequest, 200, "{\"tracks\":{\"items\":[]}}")

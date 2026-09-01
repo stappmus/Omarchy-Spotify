@@ -517,8 +517,20 @@ function spotifyTypeLabel(type) {
 
 var MUTE_THRESHOLD = 0.001
 var UNMUTE_FLOOR = 0.05
-var SEARCH_DEBOUNCE_MS = 600
+var SEARCH_DEBOUNCE_MS = 300
 var SEARCH_REQUEST_TIMEOUT_MS = 8000
+
+function normalizedSearchType(value) {
+  var type = String(value || "")
+  return SEARCH_TYPES.indexOf(type) >= 0 ? type : "track"
+}
+
+function searchNeedsLoad(query, activeQuery, typeLoaded) {
+  var term = String(query || "").trim()
+  return term !== "" && (String(activeQuery || "").trim() !== term
+    || typeLoaded !== true)
+}
+
 var VOLUME_FLUSH_MS = 80
 var VOLUME_FLUSH_REMOTE_MS = 250
 var VOLUME_FLUSH_SONOS_MS = 120

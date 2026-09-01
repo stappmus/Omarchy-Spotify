@@ -589,7 +589,7 @@ Item {
     }
     if (service && (currentTab === "search" || universalSearchActive)) {
       if (searchText.trim() === "") service.clearSearch()
-      else service.search(searchText)
+      else service.search(searchText, searchType)
     }
     else if (service && currentTab !== "detail") service.openView(currentTab, false)
     syncUnifiedSearchField()
@@ -1228,7 +1228,7 @@ Item {
       libraryType = action.substring(8)
       if (service) service.loadLibrary(libraryType, false)
     } else if (action.indexOf("search-") === 0) {
-      searchType = action.substring(7)
+      selectSearchType(action.substring(7))
     } else if (action === "playlist-play" && service && service.selectedPlaylist)
       playSelectedPlaylist()
     else if (action === "playlist-more" && service && service.selectedPlaylist)
@@ -1657,7 +1657,7 @@ Item {
       unifiedSearchField.text = next
   }
 
-  function runUnifiedSearch() {
+  function runUnifiedSearch(force) {
     unifiedSearchDelay.stop()
     if (!service) return
     if (activeSearchScope.available && searchInContext) {
@@ -1668,7 +1668,7 @@ Item {
     if (currentTab !== "search" && searchText.trim() !== "")
       universalSearchActive = true
     if (searchText.trim() === "") service.clearSearch()
-    else service.search(searchText)
+    else service.search(searchText, searchType, force === true)
   }
 
   function editUnifiedSearch(value) {
@@ -1729,7 +1729,7 @@ Item {
       universalSearchActive = true
       if (service) {
         if (searchText.trim() === "") service.clearSearch()
-        else service.search(searchText)
+        else service.search(searchText, searchType)
       }
     } else {
       searchInContext = true
@@ -1761,6 +1761,13 @@ Item {
     if (action === "toggle-scope" || action === "enter-context")
       toggleSearchScope()
     else focusSearch()
+  }
+
+  function selectSearchType(type) {
+    var value = Api.normalizedSearchType(type)
+    if (searchType !== value) searchType = value
+    if (service && showingUniversalSearch && searchText.trim() !== "")
+      service.search(searchText, value)
   }
 
   function seekBy(seconds) {
@@ -1846,8 +1853,9 @@ Item {
       restorePlaylistSelection()
       if (currentTab === "detail" && requestedDetail)
         service.openDetail(requestedDetail)
-      if (currentTab === "search" && searchText && service.searchQuery !== searchText)
-        service.search(searchText)
+      if (currentTab === "search" && Api.searchNeedsLoad(searchText,
+          service.searchResultQuery, service.searchLoadedTypes[searchType]))
+        service.search(searchText, searchType)
     }
     Qt.callLater(function() {
       focusScope.forceActiveFocus()
@@ -1891,6 +1899,7 @@ Item {
       openedForLogin = true
       return
     }
+    var enteringSearch = currentTab !== "search" && tab === "search"
     disarmEscapeClose()
     unifiedSearchDelay.stop()
     if (showingUniversalSearch && tab !== "search" && service) service.cancelSearch(false)
@@ -1903,6 +1912,9 @@ Item {
     if (service) {
       service.openView(tab, false)
       if (tab === "playlists") restorePlaylistSelection()
+      if (enteringSearch && Api.searchNeedsLoad(searchText,
+          service.searchResultQuery, service.searchLoadedTypes[searchType]))
+        service.search(searchText, searchType)
     }
     syncUnifiedSearchField()
   }
@@ -3665,7 +3677,7 @@ Item {
                 KeyHint { region: "header"; action: "refresh" }
                 onClicked: {
                   if (!root.service) return
-                  if (root.showingUniversalSearch) root.runUnifiedSearch()
+                  if (root.showingUniversalSearch) root.runUnifiedSearch(true)
                   else if (root.currentTab === "detail" && root.service.detailItem)
                     root.service.openDetail(root.service.detailItem,
                       root.service.detailItem.type === "artist"
@@ -5106,6 +5118,11 @@ Item {
     Item {
       id: searchRoot
 
+      readonly property var items: root.service
+        ? root.service.searchItems(root.searchType) : []
+      readonly property string errorText: root.service
+        ? String(root.service.searchError || "") : ""
+
       Component.onDestruction: {
         if (root.service) root.service.cancelSearch(false)
       }
@@ -5138,12 +5155,41 @@ Item {
               focusable: false
               horizontalPadding: Style.space(7)
               hasCursor: root.cursorOn("page", "search-" + modelData.type)
-              onClicked: root.searchType = modelData.type
+              onClicked: root.selectSearchType(modelData.type)
               onHovered: function(on) {
                 if (on) root.setPanelCursor("page", "search-" + modelData.type)
               }
               KeyHint { region: "page"; action: "search-" + modelData.type }
             }
+          }
+        }
+
+        Row {
+          id: searchStatus
+          width: parent.width
+          height: visible ? Math.max(searchErrorText.implicitHeight,
+            retrySearch.implicitHeight) : 0
+          spacing: Style.space(7)
+          visible: root.searchText.trim() !== "" && searchRoot.errorText !== ""
+
+          Text {
+            id: searchErrorText
+            width: Math.max(40, parent.width - retrySearch.width - parent.spacing)
+            anchors.verticalCenter: parent.verticalCenter
+            text: searchRoot.errorText
+            color: Color.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
+          }
+
+          Button {
+            id: retrySearch
+            text: "Retry"
+            iconText: "󰑐"
+            foreground: root.foreground
+            onClicked: if (root.service)
+              root.service.retrySearch(root.searchType)
           }
         }
 
@@ -5185,7 +5231,7 @@ Item {
                 foreground: root.foreground
                 onClicked: {
                   root.searchText = modelData
-                  root.service.search(modelData)
+                  root.service.search(modelData, root.searchType)
                   Qt.callLater(function() { unifiedSearchField.forceActiveFocus() })
                 }
               }
@@ -5206,10 +5252,12 @@ Item {
         MediaCollection {
           id: resultsView
           width: parent.width
-          height: Math.max(40, parent.height - searchTypes.height - parent.spacing)
+          height: Math.max(40, parent.height - searchTypes.height
+            - searchStatus.height - parent.spacing * 2)
           visible: root.searchText.trim() !== ""
+            && (searchRoot.errorText === "" || searchRoot.items.length > 0)
           service: root.service
-          sourceItems: root.service ? root.service.searchItems(root.searchType) : []
+          sourceItems: searchRoot.items
           showFilter: false
           showQueue: true
           showSave: true
