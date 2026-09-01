@@ -202,9 +202,21 @@ TestCase {
     verify(!Api.pendingSliderVolumeShouldHold(0.5, pending, 9000))
     compare(Api.displayedSliderVolume(0.5, pending, 9000), 0.5)
     verify(!Api.pendingSliderVolumeShouldHold(0.5, null, 2000))
-    compare(Api.SEARCH_DEBOUNCE_MS, 600)
+    compare(Api.SEARCH_DEBOUNCE_MS, 300)
     compare(Api.SEARCH_REQUEST_TIMEOUT_MS, 8000)
     compare(Api.VOLUME_FLUSH_MS, 80)
+  }
+
+  function test_searchTypeLoading_normalizesAndCachesEachCategory() {
+    compare(Api.normalizedSearchType("album"), "album")
+    compare(Api.normalizedSearchType("episode"), "episode")
+    compare(Api.normalizedSearchType("unknown"), "track")
+    compare(Api.normalizedSearchType(""), "track")
+    verify(Api.searchNeedsLoad("miles", "", false))
+    verify(Api.searchNeedsLoad(" miles ", "coltrane", true))
+    verify(Api.searchNeedsLoad("miles", "miles", false))
+    verify(!Api.searchNeedsLoad("miles", "miles", true))
+    verify(!Api.searchNeedsLoad("   ", "", false))
   }
 
   function test_shallowCopyAndAssign_copyWithoutSharingIdentity() {

@@ -304,6 +304,12 @@ Item {
   property string localRuntimeDeviceName: "Omarchy Spotify"
   property string searchQuery: ""
   property var searchGroups: Api.searchGroups({}, 128)
+  property string searchError: ""
+  property string searchResultQuery: ""
+  property string searchActiveType: "track"
+  property string searchPendingType: ""
+  property var searchLoadedTypes: ({})
+  property int searchGeneration: 0
   property var savedUris: ({})
   property var savedUriCheckedAt: ({})
   property var savedUriOrder: []
@@ -1204,7 +1210,7 @@ Item {
     else if (activeView === "discover" && (force || !discoverLoaded))
       loadDiscover()
     else if (activeView === "search" && force && searchQuery)
-      search(searchQuery)
+      search(searchQuery, searchActiveType, true)
     else if (activeView === "library" && (force || !savedTracksLoaded))
       loadSavedTracks(false)
     else if (activeView === "playlists" && (force || !playlistsLoaded))
@@ -2686,27 +2692,60 @@ Item {
       })
   }
 
-  function search(term) {
+  function search(term, type, force) {
     var normalized = String(term || "").trim()
+    var value = Api.normalizedSearchType(type)
     searchQuery = normalized
-    searchLoading = normalized !== ""
+    searchActiveType = value
     if (!normalized) {
       clearSearch()
       return
     }
+    if (searchResultQuery !== normalized) {
+      spotifyApi.cancelSearch()
+      searchGeneration++
+      searchResultQuery = normalized
+      searchGroups = Api.searchGroups({}, 128)
+      searchLoadedTypes = ({})
+    }
+    if (force === true) {
+      var refreshedGroups = Api.shallowCopy(searchGroups)
+      refreshedGroups[value] = Api.normalizeSearchPage({}, value, 128)
+      searchGroups = refreshedGroups
+      var refreshedTypes = Api.shallowCopy(searchLoadedTypes)
+      refreshedTypes[value] = false
+      searchLoadedTypes = refreshedTypes
+    }
+    if (searchLoadedTypes[value] === true) {
+      spotifyApi.cancelSearch()
+      searchGeneration++
+      searchPendingType = ""
+      searchLoading = false
+      searchError = ""
+      return
+    }
+    searchLoading = true
+    searchError = ""
+    searchPendingType = value
     var expected = dataSerial
-    spotifyApi.search(normalized, function(groups, error) {
-      if (expected !== root.dataSerial) return
+    var expectedSearch = ++searchGeneration
+    spotifyApi.search(normalized, value, function(groups, error) {
+      if (expected !== root.dataSerial
+          || expectedSearch !== root.searchGeneration) return
       if (root.searchQuery !== normalized) return
       root.searchLoading = false
-      if (error) root.fail(error)
+      root.searchPendingType = ""
+      if (error) root.searchError = root.safeError(error)
       else {
-        root.searchGroups = groups
+        var incoming = ({})
+        incoming[value] = groups[value]
+        root.searchGroups = Api.mergeSearchGroups(root.searchGroups, incoming)
+        var loaded = Api.shallowCopy(root.searchLoadedTypes)
+        loaded[value] = true
+        root.searchLoadedTypes = loaded
+        root.searchError = ""
         root.rememberSearch(normalized)
-        var allItems = []
-        for (var i = 0; i < Api.SEARCH_TYPES.length; i++)
-          allItems = allItems.concat(root.searchItems(Api.SEARCH_TYPES[i]))
-        root.checkSavedItems(allItems)
+        root.checkSavedItems(root.searchItems(value))
       }
     })
   }
@@ -2722,15 +2761,22 @@ Item {
   }
 
   function loadMoreSearch(type) {
-    var value = String(type || "track")
+    var value = Api.normalizedSearchType(type)
     var path = searchNext(value)
     if (!path || searchLoading) return
     var expected = dataSerial
+    var expectedQuery = searchResultQuery
+    var expectedSearch = ++searchGeneration
     searchLoading = true
+    searchError = ""
+    searchPendingType = value
     spotifyApi.request("GET", path, null, null, function(status, payload, error) {
-      if (expected !== root.dataSerial) return
+      if (expected !== root.dataSerial
+          || expectedSearch !== root.searchGeneration
+          || expectedQuery !== root.searchResultQuery) return
       root.searchLoading = false
-      if (error) { root.fail(error); return }
+      root.searchPendingType = ""
+      if (error) { root.searchError = root.safeError(error); return }
       var incoming = ({})
       incoming[value] = Api.normalizeSearchPage(payload, value, 128)
       var merged = Api.mergeSearchGroups(root.searchGroups, incoming)
@@ -2739,19 +2785,42 @@ Item {
         merged[value].next = ""
       }
       root.searchGroups = merged
+      root.searchError = ""
       root.checkSavedItems(root.searchItems(value))
+    }, {
+      priority: "interactive",
+      timeoutMs: Api.SEARCH_REQUEST_TIMEOUT_MS,
+      retryRateLimit: false
     })
   }
 
+  function retrySearch(type) {
+    var value = Api.normalizedSearchType(type)
+    if (!searchQuery) return
+    if (searchItems(value).length > 0 && searchNext(value) !== "")
+      loadMoreSearch(value)
+    else search(searchQuery, value, true)
+  }
+
   function clearSearch() {
+    spotifyApi.cancelSearch()
+    searchGeneration++
     searchLoading = false
     searchQuery = ""
     searchGroups = Api.searchGroups({}, 128)
+    searchError = ""
+    searchResultQuery = ""
+    searchActiveType = "track"
+    searchPendingType = ""
+    searchLoadedTypes = ({})
   }
 
   function cancelSearch(clearResults) {
     spotifyApi.cancelSearch()
+    searchGeneration++
     searchLoading = false
+    searchPendingType = ""
+    searchError = ""
     if (clearResults === true) clearSearch()
   }
 
@@ -3570,6 +3639,12 @@ Item {
     connectActivationTimer.stop()
     searchQuery = ""
     searchGroups = Api.searchGroups({}, 128)
+    searchError = ""
+    searchResultQuery = ""
+    searchActiveType = "track"
+    searchPendingType = ""
+    searchLoadedTypes = ({})
+    searchGeneration++
     savedUris = ({})
     savedUriCheckedAt = ({})
     savedUriOrder = []
