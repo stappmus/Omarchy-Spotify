@@ -277,31 +277,58 @@ def receiver_name(info: dict[str, Any], service_name: str) -> str:
     return "Spotify Connect device"
 
 
-def discover_receivers(include_volume: bool = False) -> list[dict[str, Any]]:
+AVAHI_BROWSE_TIMEOUT_SECONDS = 8
+
+
+def browse_spotify_connect() -> str:
+    """Return Avahi's parsable `_spotify-connect._tcp` dump.
+
+    `--terminate --resolve` waits until every discovered service is resolved or
+    Avahi gives up, which on a busy LAN can exceed a few seconds. Keep stdout
+    from a timed-out browse so already-resolved speakers are not discarded.
+    """
+    command = [
+        "avahi-browse", "--resolve", "--parsable", "--terminate",
+        "_spotify-connect._tcp",
+    ]
     try:
         result = subprocess.run(
-            ["avahi-browse", "--resolve", "--parsable", "--terminate", "_spotify-connect._tcp"],
+            command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=4,
+            timeout=AVAHI_BROWSE_TIMEOUT_SECONDS,
             check=False,
             env={**os.environ, "LC_ALL": "C.UTF-8"},
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
+        return result.stdout or ""
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout if isinstance(error.stdout, str) else ""
+        if stdout.strip():
+            return stdout
+        raise ConnectError("Spotify Connect discovery is unavailable") from error
+    except OSError as error:
         raise ConnectError("Spotify Connect discovery is unavailable") from error
 
+
+def discover_receivers(include_volume: bool = False) -> list[dict[str, Any]]:
+    stdout = browse_spotify_connect()
+
     discovered: dict[str, dict[str, Any]] = {}
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         if not line.startswith("=;"):
             continue
         parts = line.split(";", 9)
-        if len(parts) != 10 or parts[2] != "IPv4":
+        if len(parts) != 10:
             continue
         service_name = avahi_unescape(parts[3])
         try:
             address = safe_address(parts[7])
+            # Avahi often labels an IPv4 A record as IPv6 when AAAA resolve
+            # fails. Keep the speaker if the resolved address is IPv4.
+            if ipaddress.ip_address(address).version != 4:
+                continue
             port = int(parts[8])
             if port < 1 or port > 65535:
                 continue

@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -446,6 +447,68 @@ class ConnectHelperTests(unittest.TestCase):
         self.assertEqual(result, {"status": 101})
         self.assertEqual(request.call_count, 2)
         sleep.assert_called_once_with(0.4)
+
+    def test_browse_spotify_connect_keeps_stdout_when_avahi_times_out(self) -> None:
+        dump = '=;wlp0s20f3;IPv4;office;_spotify-connect._tcp;local;host.local;192.168.1.10;1400;""\n'
+        with mock.patch.object(
+            helper.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(
+                cmd=["avahi-browse"], timeout=8, output=dump
+            ),
+        ):
+            self.assertEqual(helper.browse_spotify_connect(), dump)
+
+    def test_browse_spotify_connect_fails_when_timeout_has_no_stdout(self) -> None:
+        with mock.patch.object(
+            helper.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(
+                cmd=["avahi-browse"], timeout=8, output=""
+            ),
+        ):
+            with self.assertRaises(helper.ConnectError):
+                helper.browse_spotify_connect()
+
+    def test_discover_receivers_accepts_ipv4_address_on_ipv6_labeled_record(self) -> None:
+        dump = (
+            "=;wlp0s20f3;IPv6;sonosRINCON_OFFICE;_spotify-connect._tcp;local;"
+            "Sonos-Office.local;192.168.1.10;1400;\"CPath=/spotifyzc\" \"VERSION=1\"\n"
+        )
+        info = {
+            "status": 101,
+            "deviceID": "4c1e461f8fe6be10d41c504f6e5121a5275d1d6d",
+            "remoteName": "Office",
+            "deviceType": "SPEAKER",
+            "brandDisplayName": "Sonos",
+            "modelDisplayName": "Bookshelf",
+            "tokenType": "authorization_code",
+            "clientID": "9b377073ea334637b1406f329ce005de",
+            "publicKey": "abc",
+        }
+        with mock.patch.object(helper, "browse_spotify_connect", return_value=dump), \
+                mock.patch.object(helper, "request_json", return_value=info) as request:
+            devices = helper.discover_receivers()
+
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]["id"], info["deviceID"])
+        self.assertEqual(devices[0]["address"], "192.168.1.10")
+        self.assertEqual(devices[0]["name"], "Office")
+        request.assert_called_once()
+        self.assertEqual(request.call_args.args[0], "192.168.1.10")
+        self.assertEqual(request.call_args.args[1], 1400)
+
+    def test_discover_receivers_skips_true_ipv6_addresses(self) -> None:
+        dump = (
+            "=;wlp0s20f3;IPv6;sonosRINCON_OFFICE;_spotify-connect._tcp;local;"
+            "Sonos-Office.local;fd12:3456:789a::10;1400;\"CPath=/spotifyzc\" \"VERSION=1\"\n"
+        )
+        with mock.patch.object(helper, "browse_spotify_connect", return_value=dump), \
+                mock.patch.object(helper, "request_json") as request:
+            devices = helper.discover_receivers()
+
+        self.assertEqual(devices, [])
+        request.assert_not_called()
 
 
 if __name__ == "__main__":

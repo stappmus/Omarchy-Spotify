@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep nearby Spotify Connect speakers, including Sonos, when Avahi takes
+  longer than a few seconds to finish resolving every service. Discovery now
+  uses the records already printed, accepts IPv4 addresses even when Avahi
+  labels the browse result as IPv6, and waits up to 8 seconds.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the
