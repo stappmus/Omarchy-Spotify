@@ -593,6 +593,16 @@ function backendLoadFields(body) {
   return fields
 }
 
+// Popups drawn inside the panel (shortcut help, menus, pickers) sit over the
+// panel's own content with no compositor blur of their own. Glass themes set
+// the popup colour to a low alpha meant for separate blurred windows, which
+// leaves these unreadable. Keep the hue, floor the alpha.
+function opaqueSurface(color, minimumAlpha) {
+  var floor = Math.max(0, Math.min(1, Number(minimumAlpha) || 0))
+  if (!color || color.a === undefined) return color
+  return color.a >= floor ? color : Qt.rgba(color.r, color.g, color.b, floor)
+}
+
 // Preserve Spotify's current playback target unless the user explicitly chose
 // another device in this app. The local spotifyd player is only the fallback
 // when Spotify has no active device. Keeping a restricted device here avoids

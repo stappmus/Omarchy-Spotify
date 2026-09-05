@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Keep popups drawn inside the player (keyboard shortcuts help, menus, and
+  pickers) readable on translucent themes. They reuse the theme's popup
+  colour, which glass-style themes set to a low alpha meant for blurred
+  standalone windows; inside the panel there is no blur behind them, so the
+  alpha is now floored at 0.96 while the hue is kept.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the
