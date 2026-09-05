@@ -593,6 +593,18 @@ function backendLoadFields(body) {
   return fields
 }
 
+// Width of the bar slot for a label that measures `fitted` px. A cap trims
+// long titles; a fixed slot also pads short ones so the widget, and everything
+// laid out after it, keeps its place when the song changes.
+function barSlotWidth(fixed, cap, fitted, minimum) {
+  var capped = Number(cap) || 0
+  var natural = Math.max(0, Number(fitted) || 0)
+  var width = capped > 0
+    ? (fixed === true ? capped : Math.min(capped, natural))
+    : natural
+  return Math.max(Number(minimum) || 0, width)
+}
+
 // Preserve Spotify's current playback target unless the user explicitly chose
 // another device in this app. The local spotifyd player is only the fallback
 // when Spotify has no active device. Keeping a restricted device here avoids

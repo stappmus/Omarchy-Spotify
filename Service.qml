@@ -44,6 +44,7 @@ Item {
     scrollBarText: "Off",
     scrollSpeed: "1",
     maxBarTextWidth: "240",
+    fixedBarWidth: "Off",
     audioQuality: "320 kbps"
   })
   property var settings: Api.shallowCopy(defaultSettingValues)
@@ -63,6 +64,10 @@ Item {
   // Bar label cap in unscaled px; 0 means no cap.
   readonly property real maxBarTextWidth: Api.normalizedMaxBarTextWidth(
     settings.maxBarTextWidth)
+  // Reserve the whole cap while a track is shown so the bar does not shift
+  // between songs of different lengths. Meaningless without a cap.
+  readonly property bool fixedBarWidth: maxBarTextWidth > 0
+    && String(settings.fixedBarWidth || "Off") === "On"
   readonly property int bitrateKbps: {
     var quality = String(settings.audioQuality || "320 kbps")
     return quality.indexOf("96") === 0 ? 96
@@ -463,7 +468,7 @@ Item {
     var keys = ["deviceName", "idleShutdownMinutes", "showMiniPlayer",
       "shortcutPlayer", "shortcutHints", "showTrackTitle", "showArtistName",
       "showPausedTrack", "scrollBarText", "scrollSpeed", "maxBarTextWidth",
-      "audioQuality"]
+      "fixedBarWidth", "audioQuality"]
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i]
       if (source[key] !== undefined) next[key] = source[key]
@@ -484,6 +489,8 @@ Item {
     next.maxBarTextWidth = String(Api.normalizedMaxBarTextWidth(next.maxBarTextWidth))
     // An uncapped slot always fits its text, so the marquee could never run.
     if (Number(next.maxBarTextWidth) === 0) next.scrollBarText = "Off"
+    next.fixedBarWidth = String(next.fixedBarWidth || "Off") === "On" ? "On" : "Off"
+    if (Number(next.maxBarTextWidth) === 0) next.fixedBarWidth = "Off"
     var quality = String(next.audioQuality || "320 kbps")
     next.audioQuality = quality.indexOf("96") === 0 ? "96 kbps"
       : (quality.indexOf("160") === 0 ? "160 kbps" : "320 kbps")

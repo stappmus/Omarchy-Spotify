@@ -1781,4 +1781,16 @@ TestCase {
     compare(Api.searchEscapeAction(true, false, "", false), "")
     compare(Api.searchEscapeAction(false, true, "query", true), "")
   }
+
+  function test_barSlotWidth_fixedReservesTheCapAndCappedTrimsOnly() {
+    compare(Api.barSlotWidth(false, 240, 180, 32), 180)
+    compare(Api.barSlotWidth(false, 240, 400, 32), 240)
+    compare(Api.barSlotWidth(true, 240, 180, 32), 240)
+    compare(Api.barSlotWidth(true, 240, 400, 32), 240)
+    compare(Api.barSlotWidth(true, 0, 180, 32), 180)
+    compare(Api.barSlotWidth(false, 0, 400, 32), 400)
+    compare(Api.barSlotWidth(true, 240, 0, 32), 240)
+    compare(Api.barSlotWidth(false, 240, 10, 32), 32)
+    compare(Api.barSlotWidth(false, "240", "180", "32"), 180)
+  }
 }

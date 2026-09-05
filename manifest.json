@@ -40,6 +40,7 @@
       "scrollBarText": "Off",
       "scrollSpeed": "1",
       "maxBarTextWidth": "240",
+      "fixedBarWidth": "Off",
       "audioQuality": "320 kbps"
     },
     "schema": [
@@ -150,6 +151,17 @@
         "label": "Maximum bar text width",
         "defaultValue": "240",
         "description": "Width from 160 to 560 px. Use 0 for unlimited."
+      },
+      {
+        "key": "fixedBarWidth",
+        "type": "enum",
+        "label": "Fixed bar width",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "Off",
+        "description": "When on, the bar label always reserves the maximum width while a track is shown, so neighbouring widgets do not shift between songs. Unavailable while the width is unlimited."
       },
       {
         "key": "audioQuality",

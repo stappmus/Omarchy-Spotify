@@ -575,9 +575,9 @@ BarWidget {
 
     fixedWidth: root.vertical ? root.barSize
       : (root.iconOnly ? Style.bar.iconSlot
-        : Math.max(root.barSize, barTextCap > 0
-          ? Math.min(Style.space(barTextCap), fittedWidth)
-          : fittedWidth))
+        : Api.barSlotWidth(root.spotify && root.spotify.fixedBarWidth,
+          barTextCap > 0 ? Style.space(barTextCap) : 0, fittedWidth,
+          root.barSize))
     fixedHeight: root.vertical && root.iconOnly ? Style.bar.iconSlot : -1
     clip: true
 
