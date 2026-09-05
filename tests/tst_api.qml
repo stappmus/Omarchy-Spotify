@@ -1781,4 +1781,72 @@ TestCase {
     compare(Api.searchEscapeAction(true, false, "", false), "")
     compare(Api.searchEscapeAction(false, true, "query", true), "")
   }
+
+  function test_resumeCandidateFromRecentlyPlayed_keepsPlaylistContext() {
+    var candidate = Api.resumeCandidateFromRecentlyPlayed({
+      items: [{
+        played_at: "2026-09-05T09:00:00Z",
+        context: { type: "playlist", uri: "spotify:playlist:abc" },
+        track: {
+          id: "t1", uri: "spotify:track:t1", name: "Blue in Green",
+          type: "track", artists: [{ name: "Miles Davis" }],
+          album: { name: "Kind of Blue", images: [] }
+        }
+      }]
+    }, 96)
+    compare(candidate.item.uri, "spotify:track:t1")
+    compare(candidate.item.name, "Blue in Green")
+    compare(candidate.item.subtitle, "Miles Davis")
+    compare(candidate.contextUri, "spotify:playlist:abc")
+    compare(candidate.playedAt, "2026-09-05T09:00:00Z")
+  }
+
+  function test_resumeCandidateFromRecentlyPlayed_dropsUnplayableContexts() {
+    var artist = Api.resumeCandidateFromRecentlyPlayed({
+      items: [{
+        context: { type: "artist", uri: "spotify:artist:x" },
+        track: { id: "t2", uri: "spotify:track:t2", name: "So What", type: "track" }
+      }]
+    }, 96)
+    compare(artist.item.uri, "spotify:track:t2")
+    compare(artist.contextUri, "")
+    var collection = Api.resumeCandidateFromRecentlyPlayed({
+      items: [{
+        context: { type: "collection", uri: "spotify:user:me:collection" },
+        track: { id: "t3", uri: "spotify:track:t3", name: "Freddie", type: "track" }
+      }]
+    }, 96)
+    compare(collection.contextUri, "")
+  }
+
+  function test_resumeCandidateFromRecentlyPlayed_skipsBrokenEntries() {
+    compare(Api.resumeCandidateFromRecentlyPlayed(null, 96), null)
+    compare(Api.resumeCandidateFromRecentlyPlayed({ items: [] }, 96), null)
+    var candidate = Api.resumeCandidateFromRecentlyPlayed({
+      items: [
+        null,
+        { track: { name: "No uri", type: "track" } },
+        { track: { id: "t4", uri: "spotify:track:t4", name: "Ok", type: "track" } }
+      ]
+    }, 96)
+    compare(candidate.item.uri, "spotify:track:t4")
+  }
+
+  function test_resumePlaybackAvailable_needsIdleReceiverAndCandidate() {
+    var candidate = { item: { uri: "spotify:track:t1", name: "x" } }
+    compare(Api.resumePlaybackAvailable(false, candidate), true)
+    compare(Api.resumePlaybackAvailable(true, candidate), false)
+    compare(Api.resumePlaybackAvailable(false, null), false)
+    compare(Api.resumePlaybackAvailable(false, { item: null }), false)
+    compare(Api.resumePlaybackAvailable(false, { item: { uri: "" } }), false)
+  }
+
+  function test_idleMediaText_prefersLiveThenLastPlayedThenLabel() {
+    var item = { name: "Blue in Green", subtitle: "Miles Davis", imageUrl: "" }
+    compare(Api.idleMediaText("Live", item, "name", "Nothing playing"), "Live")
+    compare(Api.idleMediaText("", item, "name", "Nothing playing"), "Blue in Green")
+    compare(Api.idleMediaText("", item, "imageUrl", ""), "")
+    compare(Api.idleMediaText("", null, "name", "Nothing playing"), "Nothing playing")
+    compare(Api.idleMediaText("", item, "missing", ""), "")
+  }
 }

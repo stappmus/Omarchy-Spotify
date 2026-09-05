@@ -25,7 +25,8 @@ Requires Omarchy 4 and a personal Spotify Premium account.
 - **Made for Omarchy.** Every color follows your current theme automatically,
   including light themes.
 - **Always within reach.** Play, pause, skip, seek, change volume, or open
-  lyrics from the mini player in your bar.
+  lyrics from the mini player in your bar. Your last song stays loaded, so
+  Play picks up where you left off even after the player has gone idle.
 - **Your full music library.** Search Spotify, browse artists and albums,
   manage playlists and the queue, and move playback between Spotify Connect
   devices.

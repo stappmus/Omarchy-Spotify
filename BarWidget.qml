@@ -94,6 +94,8 @@ BarWidget {
         && spotify.playbackControllable) actions.push("seek")
     if (spotify && spotify.playbackControllable) {
       actions.push("shuffle", "previous", "play", "next", "repeat")
+    } else if (spotify && spotify.playbackStartable) {
+      actions.push("play")
     }
     if (spotify && spotify.lyricsAvailable) actions.push("lyrics")
     if (spotify && spotify.hasPlayer && spotify.volumeSupported)
@@ -858,7 +860,10 @@ BarWidget {
             id: popupArtwork
             anchors.fill: parent
             anchors.margins: Style.space(3)
-            source: root.popupOpen && root.spotify ? root.spotify.artUrl : ""
+            source: root.popupOpen && root.spotify
+              ? Api.idleMediaText(root.spotify.artUrl,
+                root.spotify.lastPlayedItem, "imageUrl", "")
+              : ""
             sourceSize.width: 156
             sourceSize.height: 156
             fillMode: Image.PreserveAspectFit
@@ -895,9 +900,11 @@ BarWidget {
                 - (barCurrentTrackLikeButton.visible
                   ? barCurrentTrackLikeButton.width + parent.spacing : 0))
               anchors.verticalCenter: parent.verticalCenter
-              text: root.spotify && root.spotify.title
-                ? root.spotify.title : "Nothing playing"
-              color: root.foreground
+              text: Api.idleMediaText(root.spotify ? root.spotify.title : "",
+                root.spotify ? root.spotify.lastPlayedItem : null, "name",
+                "Nothing playing")
+              color: root.spotify && root.spotify.title
+                ? root.foreground : root.muted
               font.family: root.bar ? root.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.subtitle
               font.bold: true
@@ -950,7 +957,9 @@ BarWidget {
               anchors.leftMargin: Style.space(3)
               anchors.rightMargin: Style.space(3) + miniArtistHint.reservedRight
               artists: root.spotify ? root.spotify.currentArtists : []
-              fallbackText: root.spotify ? root.spotify.artist : ""
+              fallbackText: Api.idleMediaText(
+                root.spotify ? root.spotify.artist : "",
+                root.spotify ? root.spotify.lastPlayedItem : null, "subtitle", "")
               fallbackClickable: fallbackText !== "" && artists.length === 0
                 && root.spotify && root.spotify.currentArtistContextAvailable
               color: root.spotify && root.spotify.artist !== ""
@@ -994,7 +1003,9 @@ BarWidget {
               anchors.leftMargin: Style.space(3)
               anchors.rightMargin: Style.space(3) + miniAlbumHint.reservedRight
               artists: []
-              fallbackText: root.spotify ? root.spotify.album : ""
+              fallbackText: Api.idleMediaText(
+                root.spotify ? root.spotify.album : "",
+                root.spotify ? root.spotify.lastPlayedItem : null, "album", "")
               fallbackClickable: root.spotify
                 && root.spotify.currentAlbumContextAvailable
               color: root.spotify && root.spotify.currentAlbumContextAvailable
@@ -1122,9 +1133,10 @@ BarWidget {
           foreground: root.foreground
           selected: root.spotify && root.spotify.playing
           hasCursor: root.miniCursorActive && root.miniCursor === "play"
-          tooltipText: (root.spotify && root.spotify.playing ? "Pause" : "Play")
-            + " · Space"
-          enabled: root.spotify && root.spotify.playbackControllable
+          tooltipText: (root.spotify && root.spotify.playing ? "Pause"
+            : (root.spotify && root.spotify.canResumeLastPlayed
+              ? "Resume last played" : "Play")) + " · Space"
+          enabled: root.spotify && root.spotify.playbackStartable
           onClicked: if (root.spotify) root.spotify.togglePlayback()
           onHovered: function(on) { if (on) root.setMiniCursor("play") }
           KeyHint { sequences: ["Space"] }
