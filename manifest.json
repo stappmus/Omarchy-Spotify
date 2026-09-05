@@ -40,7 +40,8 @@
       "scrollBarText": "Off",
       "scrollSpeed": "1",
       "maxBarTextWidth": "240",
-      "audioQuality": "320 kbps"
+      "audioQuality": "320 kbps",
+      "clientId": ""
     },
     "schema": [
       {
@@ -162,6 +163,13 @@
         ],
         "defaultValue": "320 kbps",
         "description": "Takes effect the next time playback starts."
+      },
+      {
+        "key": "clientId",
+        "type": "string",
+        "label": "Spotify Developer app client ID",
+        "defaultValue": "",
+        "description": "Optional personal Spotify Developer app client ID, to bypass the shared app's per-app rate-limit bucket. Empty keeps the plugin's client. Only a 32-hex ID is accepted; anything else is ignored and the shipped client is kept. Changing it signs you in again with your app."
       }
     ]
   }

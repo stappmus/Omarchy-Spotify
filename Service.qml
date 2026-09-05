@@ -463,7 +463,7 @@ Item {
     var keys = ["deviceName", "idleShutdownMinutes", "showMiniPlayer",
       "shortcutPlayer", "shortcutHints", "showTrackTitle", "showArtistName",
       "showPausedTrack", "scrollBarText", "scrollSpeed", "maxBarTextWidth",
-      "audioQuality"]
+      "audioQuality", "clientId"]
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i]
       if (source[key] !== undefined) next[key] = source[key]
@@ -487,6 +487,10 @@ Item {
     var quality = String(next.audioQuality || "320 kbps")
     next.audioQuality = quality.indexOf("96") === 0 ? "96 kbps"
       : (quality.indexOf("160") === 0 ? "160 kbps" : "320 kbps")
+    // A personal Spotify client ID opts out of the shared rate-limit bucket.
+    // Anything that is not a 32-hex ID (including empty) means "keep shipped".
+    var customClientId = String(next.clientId || "").trim()
+    next.clientId = /^[0-9a-f]{32}$/i.test(customClientId) ? customClientId.toLowerCase() : ""
     return next
   }
 
@@ -4036,6 +4040,7 @@ Item {
   AuthManager {
     id: authManager
     pluginDir: root.pluginDir
+    customClientId: settings.clientId
   }
 
   AuthManager {

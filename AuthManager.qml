@@ -21,6 +21,13 @@ Item {
   // A second internal instance may override them for the streaming-only grant
   // required by authorization-code Spotify Connect receivers such as Sonos.
   property string clientId: "d420a117a32841c2b3474932e49fb54b"
+  // A personal Spotify Developer app client ID opts out of the shared
+  // per-app rate-limit bucket. Empty keeps the shipped client above. Only a
+  // 32-hex value is accepted, so a typo can never redirect the OAuth flow or
+  // the keyring entry (both are scoped per client ID).
+  property string customClientId: ""
+  readonly property string resolvedClientId: /^[0-9a-f]{32}$/i.test(String(customClientId || ""))
+    ? customClientId.toLowerCase() : clientId
   property int oauthPort: 8989
   property string callbackPath: "/login"
   property var scopes: Api.SCOPES
@@ -111,7 +118,7 @@ Item {
       "secret-tool", "lookup",
       "service", "quickshell-spotify",
       "kind", "refresh-token",
-      "client-id", String(clientId)
+      "client-id", String(resolvedClientId)
     ]
     secretLookup.running = true
   }
@@ -151,7 +158,7 @@ Item {
   function refreshWithToken(refreshToken, purpose) {
     refreshBusy = true
     postTokenRequest(Api.formBody({
-      client_id: clientId,
+      client_id: resolvedClientId,
       grant_type: "refresh_token",
       refresh_token: refreshToken
     }), refreshToken, function(result) {
@@ -182,7 +189,7 @@ Item {
   function storeRefreshToken(refreshToken) {
     if (!refreshToken || keyringStore.running) return
     keyringWriteToken = String(refreshToken)
-    keyringStore.command = [pluginDir + "/scripts/keyring-store.sh", String(clientId)]
+    keyringStore.command = [pluginDir + "/scripts/keyring-store.sh", String(resolvedClientId)]
     keyringStore.running = true
   }
 
@@ -192,7 +199,7 @@ Item {
       "secret-tool", "clear",
       "service", "quickshell-spotify",
       "kind", "refresh-token",
-      "client-id", String(clientId)
+      "client-id", String(resolvedClientId)
     ]
     keyringClear.running = true
   }
@@ -240,7 +247,7 @@ Item {
   function openAuthorizationPage() {
     if (!loginBusy || callbackHandled || pkceChallenge === "") return
     var url = Api.appendQuery(Api.AUTH_URL, {
-      client_id: clientId,
+      client_id: resolvedClientId,
       code_challenge: pkceChallenge,
       code_challenge_method: "S256",
       redirect_uri: redirectUri,
@@ -276,7 +283,7 @@ Item {
     exchangingCode = true
     var verifier = pkceVerifier
     var requestBody = Api.formBody({
-      client_id: clientId,
+      client_id: resolvedClientId,
       code: code,
       code_verifier: verifier,
       grant_type: "authorization_code",

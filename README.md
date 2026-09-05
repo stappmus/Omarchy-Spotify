@@ -139,17 +139,19 @@ Bring your own quota with a free personal [Spotify Developer app](https://develo
 
 1. Create an app and add a redirect URI of `http://127.0.0.1:8989/login`—the
    plugin's OAuth port is `8989` with a `/login` path.
-2. Open `~/.config/omarchy/plugins/quickshell.spotify/AuthManager.qml` and put
-   your client ID on the `property string clientId: "…"` line.
+2. Paste the app's client ID into the **Spotify Developer app client ID**
+   setting, or set it directly in
+   `~/.config/omarchy/plugins/quickshell.spotify/AuthManager.qml` on the
+   `property string customClientId: "…"` line. Any value that is not a 32-hex
+   client ID is ignored and the shipped client is kept.
 3. Restart the shell (`omarchy-restart-shell`) and sign in again. Session tokens
    are stored per client ID, so a fresh login is expected.
 
 Trade-offs: new apps run in Spotify's development mode, where the Web API no
 longer returns editorial playlists, track lists of playlists owned by others,
 or `/recommendations`. Playback is unaffected—audio flows through librespot, not
-the Web API. This is a stopgap while a proper setting is discussed in
-[#52](https://github.com/stappmus/Omarchy-Spotify/issues/52), and a plugin
-update overwrites the file, so re-apply the edit after updating.
+the Web API. A plugin update overwrites an edited `AuthManager.qml`, so prefer
+the setting, which survives updates.
 
 ## Remove it completely
 
