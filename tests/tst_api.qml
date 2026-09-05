@@ -1781,4 +1781,15 @@ TestCase {
     compare(Api.searchEscapeAction(true, false, "", false), "")
     compare(Api.searchEscapeAction(false, true, "query", true), "")
   }
+
+  function test_opaqueSurface_floorsAlphaAndKeepsHue() {
+    var glass = Qt.rgba(0.95, 0.95, 0.97, 0.3)
+    var floored = Api.opaqueSurface(glass, 0.96)
+    fuzzyCompare(floored.a, 0.96, 0.001)
+    fuzzyCompare(floored.r, 0.95, 0.001)
+    fuzzyCompare(floored.b, 0.97, 0.001)
+    var solid = Qt.rgba(0.1, 0.1, 0.1, 1)
+    compare(Api.opaqueSurface(solid, 0.96), solid)
+    compare(Api.opaqueSurface(null, 0.96), null)
+  }
 }

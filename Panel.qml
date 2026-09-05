@@ -85,7 +85,10 @@ Item {
   readonly property color background: Color.background
   readonly property color accent: Color.accent
   readonly property color muted: Color.muted
-  readonly property color popupBackground: Color.popups.background
+  // In-panel popups have no blur behind them, so a translucent theme popup
+  // colour is floored to stay readable over the list beneath.
+  readonly property color popupBackground: Api.opaqueSurface(
+    Color.popups.background, 0.96)
   readonly property var popupBorderSpec: Border.flat(Color.popups.border,
     Math.max(1, Style.normalBorderWidth))
   readonly property int popupScrollbarGutter: Style.space(14)
