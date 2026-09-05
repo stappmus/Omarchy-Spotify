@@ -965,6 +965,7 @@ Item {
     if (service && service.currentAlbumContextAvailable) actions.push("album")
     if (service && service.playbackControllable)
       actions.push("shuffle", "previous", "play", "next", "repeat")
+    else if (service && service.playbackStartable) actions.push("play")
     if (service && service.lyricsAvailable) actions.push("lyrics")
     if (service && service.lengthSeconds > 0 && service.playbackControllable)
       actions.push("seek")
@@ -3159,7 +3160,7 @@ Item {
       Shortcut {
         sequence: "Space"
         enabled: !root.shortcutsBlocked && !root.textInputFocused()
-          && root.service && root.service.playbackControllable
+          && root.service && root.service.playbackStartable
         onActivated: {
           root.latchShortcutMode(sequence)
           if (root.service) root.service.togglePlayback()
@@ -3885,7 +3886,10 @@ Item {
                 Image {
                   anchors.fill: parent
                   anchors.margins: Style.space(2)
-                  source: root.service ? root.service.artUrl : ""
+                  source: root.service
+                    ? Api.idleMediaText(root.service.artUrl,
+                      root.service.lastPlayedItem, "imageUrl", "")
+                    : ""
                   sourceSize.width: 136
                   sourceSize.height: 136
                   fillMode: Image.PreserveAspectFit
@@ -3896,7 +3900,9 @@ Item {
 
                 Text {
                   anchors.centerIn: parent
-                  visible: !root.service || root.service.artUrl === ""
+                  visible: !root.service || Api.idleMediaText(
+                    root.service.artUrl, root.service.lastPlayedItem,
+                    "imageUrl", "") === ""
                   text: "󰎈"
                   color: root.muted
                   font.family: root.fontFamily
@@ -3921,9 +3927,12 @@ Item {
                       - (nowPlayingActions.visible
                         ? nowPlayingActions.width + parent.spacing : 0))
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.service && root.service.title
-                      ? root.service.title : "Nothing playing"
-                    color: root.foreground
+                    text: Api.idleMediaText(
+                      root.service ? root.service.title : "",
+                      root.service ? root.service.lastPlayedItem : null, "name",
+                      "Nothing playing")
+                    color: root.service && root.service.title
+                      ? root.foreground : root.muted
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.bold: true
@@ -4013,8 +4022,10 @@ Item {
                     anchors.rightMargin: currentArtistHint.reservedRight
                     anchors.verticalCenter: parent.verticalCenter
                     artists: root.service ? root.service.currentArtists : []
-                    fallbackText: root.service && root.service.artist
-                      ? root.service.artist : "Choose something to play"
+                    fallbackText: Api.idleMediaText(
+                      root.service ? root.service.artist : "",
+                      root.service ? root.service.lastPlayedItem : null,
+                      "subtitle", "Choose something to play")
                     fallbackClickable: root.service && root.service.artist !== ""
                       && root.service.currentArtistContextAvailable
                       && artists.length === 0
@@ -4131,8 +4142,10 @@ Item {
                   selected: root.service && root.service.playing
                   hasCursor: root.cursorOn("footer", "play")
                   tooltipText: root.shortcutHint(
-                    root.service && root.service.playing ? "Pause" : "Play", "Space")
-                  enabled: root.service && root.service.playbackControllable
+                    root.service && root.service.playing ? "Pause"
+                      : (root.service && root.service.canResumeLastPlayed
+                        ? "Resume last played" : "Play"), "Space")
+                  enabled: root.service && root.service.playbackStartable
                   onClicked: if (root.service) root.service.togglePlayback()
                   onHovered: function(on) {
                     if (on) root.setPanelCursor("footer", "play")

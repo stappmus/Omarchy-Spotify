@@ -593,6 +593,47 @@ function backendLoadFields(body) {
   return fields
 }
 
+// The desktop app keeps the last play loaded in its footer, so Play always has
+// somewhere to go. Spotify's play endpoint only resumes while the receiver
+// still holds a context, which spotifyd loses once it idles out or restarts.
+// Pick the most recent play, with the playlist or album it came from, so an
+// idle receiver can continue there instead of leaving Play dead.
+function resumeCandidateFromRecentlyPlayed(payload, imageWidth) {
+  var source = payload || {}
+  var values = Array.isArray(source.items) ? source.items : []
+  for (var i = 0; i < values.length; i++) {
+    var entry = values[i]
+    if (!entry || typeof entry !== "object") continue
+    var item = normalizeTrack(entry, imageWidth || 192)
+    if (!item || !item.uri) continue
+    var context = entry.context && typeof entry.context === "object"
+      ? entry.context : null
+    var contextUri = context && context.uri ? String(context.uri) : ""
+    return {
+      item: item,
+      // The play endpoint accepts album and playlist contexts. Artist and
+      // collection contexts fall back to the single track.
+      contextUri: /^spotify:(album|playlist):/.test(contextUri) ? contextUri : "",
+      playedAt: String(entry.played_at || "")
+    }
+  }
+  return null
+}
+
+function resumePlaybackAvailable(hasMedia, candidate) {
+  return hasMedia !== true && !!candidate && !!candidate.item
+    && !!candidate.item.uri
+}
+
+// Footer text while nothing is loaded: the live value, else the matching field
+// of the last played item, else the idle label.
+function idleMediaText(current, item, key, fallback) {
+  var value = String(current || "")
+  if (value) return value
+  if (item && typeof item === "object" && item[key]) return String(item[key])
+  return String(fallback || "")
+}
+
 // Preserve Spotify's current playback target unless the user explicitly chose
 // another device in this app. The local spotifyd player is only the fallback
 // when Spotify has no active device. Keeping a restricted device here avoids

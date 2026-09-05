@@ -318,6 +318,19 @@ Item {
   readonly property int savedUriFreshnessMs: 300000
 
   property var recentTracks: []
+  // Most recent play from Spotify's history, kept while nothing is loaded so
+  // Play can continue there the way the desktop app's footer does.
+  property var resumeCandidate: null
+  property bool resumeCandidateLoading: false
+  property real resumeCandidateLoadedAt: 0
+  readonly property bool canResumeLastPlayed: Api.resumePlaybackAvailable(
+    hasMedia, resumeCandidate)
+  readonly property var lastPlayedItem: canResumeLastPlayed
+    ? resumeCandidate.item : null
+  // Play is usable either with live media or with a last play to fall back to.
+  // Seek, skip, shuffle, and repeat stay tied to playbackControllable.
+  readonly property bool playbackStartable: playbackControllable
+    || canResumeLastPlayed
   property var topTracks: []
   property var topArtists: []
   property bool homeLoaded: false
@@ -1170,6 +1183,7 @@ Item {
         }
         if (!error) root.applyPlaybackState(payload)
         else if (reportError === true) root.fail(error)
+        if (!error && !root.hasMedia) root.loadResumeCandidate()
         root.finishRemotePlaybackWaiters(!error)
       })
   }
@@ -3216,9 +3230,37 @@ Item {
     playbackPositionTick++
   }
 
+  function loadResumeCandidate(force) {
+    if (resumeCandidateLoading) return
+    if (!authManager.loggedIn && !authManager.tokenIsFresh()) return
+    if (force !== true && resumeCandidate
+        && Date.now() - resumeCandidateLoadedAt < 30000) return
+    var expected = dataSerial
+    resumeCandidateLoading = true
+    spotifyApi.request("GET", "/me/player/recently-played", { limit: 5 }, null,
+      function(status, payload, error) {
+        root.resumeCandidateLoading = false
+        if (expected !== root.dataSerial || error) return
+        root.resumeCandidate = Api.resumeCandidateFromRecentlyPlayed(payload, 192)
+        root.resumeCandidateLoadedAt = Date.now()
+      })
+  }
+
+  // Nothing is loaded, so a plain resume has no context to continue. Start the
+  // last play inside its playlist or album through the regular playback path,
+  // which also brings up the local receiver when it has idled out.
+  function resumeLastPlayed() {
+    var candidate = resumeCandidate
+    if (!Api.resumePlaybackAvailable(hasMedia, candidate)) return false
+    playItem(candidate.item, null, candidate.contextUri,
+      "Resuming " + String(candidate.item.name || ""))
+    return true
+  }
+
   function togglePlayback() {
     noteActivity()
     if (sendSonosControl(playing ? "pause" : "play", "")) return
+    if (!hasMedia && resumeLastPlayed()) return
     if (!useRemotePlayback && hasLocalPlayer && activePlayer.canTogglePlaying) {
       activePlayer.togglePlaying()
       return
@@ -3508,6 +3550,8 @@ Item {
     radioSerial++
     playlistItemsSerial++
     clearPendingPlayback()
+    resumeCandidate = null
+    resumeCandidateLoadedAt = 0
     radioContextSelected = false
     playlists = []
     playlistsLoaded = false
