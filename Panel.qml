@@ -62,6 +62,7 @@ Item {
   property bool draftShowArtist: false
   property bool draftShowPausedTrack: true
   property bool draftScrollBarText: false
+  property bool draftFixedBarWidth: false
   property real draftScrollSpeed: 1
   // 0 means no cap — the slot grows with the track text.
   property real draftMaxBarTextWidth: 240
@@ -186,6 +187,7 @@ Item {
     draftScrollBarText = service.scrollBarText
     draftScrollSpeed = service.scrollSpeed
     draftMaxBarTextWidth = service.maxBarTextWidth
+    draftFixedBarWidth = service.fixedBarWidth
     draftAudioQuality = service.audioQuality
   }
 
@@ -204,6 +206,7 @@ Item {
       scrollBarText: draftScrollBarText ? "On" : "Off",
       scrollSpeed: Api.normalizedScrollSpeed(draftScrollSpeed),
       maxBarTextWidth: Api.normalizedMaxBarTextWidth(draftMaxBarTextWidth),
+      fixedBarWidth: draftFixedBarWidth ? "On" : "Off",
       audioQuality: draftAudioQuality
     }
     service.persistSettings(values)
@@ -259,7 +262,10 @@ Item {
   }
 
   function enforceScrollAvailability() {
-    if (barTextWidthUnlimited) draftScrollBarText = false
+    if (barTextWidthUnlimited) {
+      draftScrollBarText = false
+      draftFixedBarWidth = false
+    }
     if (!Api.canScrollBarText(draftShowTitle, draftShowArtist))
       draftScrollBarText = false
   }
@@ -6449,6 +6455,20 @@ Item {
                     : "Scroll bar text only when it is too wide to fit"
                   onClicked: {
                     root.draftScrollBarText = !root.draftScrollBarText
+                    root.persistDraftSettings()
+                  }
+                }
+                Button {
+                  text: "Fixed width · " + (root.draftFixedBarWidth ? "On" : "Off")
+                  foreground: root.foreground
+                  selected: root.draftFixedBarWidth
+                  enabled: Api.canScrollBarText(root.draftShowTitle, root.draftShowArtist)
+                    && !root.barTextWidthUnlimited
+                  tooltipText: root.barTextWidthUnlimited
+                    ? "Unavailable while the bar width is unlimited"
+                    : "Always reserve the full width while a track is shown, so the bar does not shift between songs"
+                  onClicked: {
+                    root.draftFixedBarWidth = !root.draftFixedBarWidth
                     root.persistDraftSettings()
                   }
                 }

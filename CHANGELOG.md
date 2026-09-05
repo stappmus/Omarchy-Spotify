@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a "Fixed bar width" bar setting. When on, the bar label always reserves
+  the configured maximum width while a track is shown, so the widget and the
+  widgets laid out after it no longer shift when the song title length
+  changes. Off by default; unavailable while the width is unlimited.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the
