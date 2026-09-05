@@ -128,6 +128,29 @@ still match that tagged source. If verification is unavailable, setup builds
 the locked Rust source locally or offers Omarchy's packaged `spotifyd` fallback
 instead of executing an unverified download.
 
+## Seeing "Spotify is busy." or slow searches?
+
+The plugin's Spotify Web API client ID is shared by every install worldwide,
+and Spotify rate-limits requests **per app**, not per user. When that shared
+quota runs out you see `Spotify is busy. Try again in N seconds.` and searches
+that stall even though nothing is wrong on your side.
+
+Bring your own quota with a free personal [Spotify Developer app](https://developer.spotify.com/dashboard):
+
+1. Create an app and add a redirect URI of `http://127.0.0.1:8989/login`—the
+   plugin's OAuth port is `8989` with a `/login` path.
+2. Open `~/.config/omarchy/plugins/quickshell.spotify/AuthManager.qml` and put
+   your client ID on the `property string clientId: "…"` line.
+3. Restart the shell (`omarchy-restart-shell`) and sign in again. Session tokens
+   are stored per client ID, so a fresh login is expected.
+
+Trade-offs: new apps run in Spotify's development mode, where the Web API no
+longer returns editorial playlists, track lists of playlists owned by others,
+or `/recommendations`. Playback is unaffected—audio flows through librespot, not
+the Web API. This is a stopgap while a proper setting is discussed in
+[#52](https://github.com/stappmus/Omarchy-Spotify/issues/52), and a plugin
+update overwrites the file, so re-apply the edit after updating.
+
 ## Remove it completely
 
 Run the bundled uninstaller from outside the plugin directory:
