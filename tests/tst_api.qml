@@ -6,6 +6,14 @@ import "../Api.js" as Api
 TestCase {
   name: "SpotifyApiLogic"
 
+  function test_playbackAuthenticationError() {
+    compare(Api.playbackAuthenticationError(21),
+      "Playback authorization port 8000 is already in use. Stop the application using it, then try again.")
+    compare(Api.playbackAuthenticationError(1),
+      "Spotify could not connect playback on this computer. Try again")
+    compare(Api.playbackAuthenticationError(2), Api.playbackAuthenticationError(1))
+  }
+
   function test_queryString_isStableAndEncoded() {
     compare(Api.queryString({ z: "last", q: "AC/DC & friends", empty: "" }),
       "q=AC%2FDC%20%26%20friends&z=last")

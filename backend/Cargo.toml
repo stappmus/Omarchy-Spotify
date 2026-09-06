@@ -29,3 +29,7 @@ codegen-units = 1
 lto = "thin"
 strip = true
 panic = "abort"
+
+# Bind the callback before opening authorization (stappmus/librespot#1).
+[patch."https://github.com/stappmus/librespot"]
+librespot-oauth = { git = "https://github.com/Brams-s/librespot", rev = "8f6afe00eb5b428dde0e0023e126a14a577a2cec" }
