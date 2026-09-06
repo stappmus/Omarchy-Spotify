@@ -264,8 +264,8 @@ function rateLimitRetryMs(retryAfter, attempt) {
   var retry = Math.max(0, Math.floor(Number(attempt) || 0))
   var backoffMs = 1000 * Math.pow(2, retry)
   // Spotify often 429s again if we retry at exactly Retry-After, especially
-  // when the header is 1 second. Wait a little longer and grow the delay.
-  return Math.min(30000, Math.max(1000, headerMs, backoffMs) + 400)
+  // when the header is 1 second. Cap our backoff, never the server delay.
+  return Math.max(1000, headerMs, Math.min(30000, backoffMs)) + 400
 }
 
 function shouldRetryRateLimit(retriesSoFar) {

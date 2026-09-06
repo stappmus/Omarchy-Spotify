@@ -44,6 +44,7 @@ TestCase {
     var xhr = {
       readyState: XMLHttpRequest.UNSENT,
       status: 0,
+      retryAfter: "1",
       responseText: "",
       url: "",
       method: "",
@@ -57,7 +58,7 @@ TestCase {
       },
       setRequestHeader: function() {},
       getResponseHeader: function(name) {
-        return String(name).toLowerCase() === "retry-after" ? "1" : ""
+        return String(name).toLowerCase() === "retry-after" ? this.retryAfter : ""
       },
       send: function() {
         if (testCase.failSend) throw new Error("send failed")
@@ -190,6 +191,82 @@ TestCase {
     api.pumpRequests()
     compare(requests.length, 2)
     complete(requests[1], 200)
+    compare(callbacks, 1)
+  }
+
+  function test_long429BlocksRetryAndOtherRequestsUntilDeadline() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    verify(api)
+    var callbacks = 0
+    api.request("GET", "/me", null, null, function() { callbacks++ })
+    requests[0].retryAfter = "120"
+    complete(requests[0], 429)
+    compare(api.rateLimitedUntil, 121400)
+    api.request("GET", "/me/albums", null, null, function() { callbacks++ })
+
+    clock = 31000
+    api.pumpRequests()
+    compare(requests.length, 1)
+    clock = 121399
+    api.pumpRequests()
+    compare(requests.length, 1)
+    compare(callbacks, 0)
+
+    clock = 121400
+    api.pumpRequests()
+    // The first retry stays serial until a successful response clears 429 mode.
+    compare(requests.length, 2)
+    complete(requests[1], 200)
+    compare(requests.length, 3)
+    complete(requests[2], 200)
+    compare(callbacks, 2)
+    compare(api.requestQueue.length, 0)
+  }
+
+  function test_cooldownLongerThanTimerRangeRechecksWithoutDispatchingEarly() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    verify(api)
+    api.request("GET", "/me", null, null, function() {})
+    requests[0].retryAfter = "3000000"
+    complete(requests[0], 429)
+    var deadline = 3000001400
+    compare(api.rateLimitedUntil, deadline)
+    var timer = findChild(api, "rateLimitTimer")
+    verify(timer)
+    compare(timer.interval, 2147483647)
+    verify(timer.running)
+
+    clock = 1000 + 2147483647
+    timer.triggered()
+    compare(requests.length, 1)
+    compare(api.rateLimitedUntil, deadline)
+    compare(timer.interval, deadline - clock)
+    verify(timer.interval > 0)
+
+    clock = deadline - 1
+    timer.triggered()
+    compare(requests.length, 1)
+    clock = deadline
+    timer.triggered()
+    compare(requests.length, 2)
+    complete(requests[1], 200)
+  }
+
+  function test_longSearch429DoesNotSilentlyRetry() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    verify(api)
+    var callbacks = 0
+    api.search("busy", function(groups, error) {
+      callbacks++
+      verify(error.indexOf("120 seconds") >= 0)
+    })
+    requests[0].retryAfter = "120"
+    complete(requests[0], 429)
+    compare(callbacks, 1)
+    compare(api.requestQueue.length, 0)
+    clock = 121400
+    api.pumpRequests()
+    compare(requests.length, 1)
     compare(callbacks, 1)
   }
 
