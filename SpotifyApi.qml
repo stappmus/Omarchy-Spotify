@@ -86,6 +86,11 @@ Item {
           || current < job.deadlineAt) continue
       var handle = job.handle
       var xhr = handle ? handle.xhr : null
+      var cooldownMs = Api.apiCooldownMs(current, rateLimitedUntil)
+      var waitingForCooldown = cooldownMs > 0 && requestQueue.indexOf(job) >= 0
+      var error = waitingForCooldown
+        ? Api.rateLimitMessage(String(Math.ceil(cooldownMs / 1000)))
+        : "Spotify took too long to respond. Try again."
       if (markJobFinished(job) !== true) continue
       if (handle) {
         handle.xhr = null
@@ -93,8 +98,7 @@ Item {
         removeQueuedHandle(handle)
       }
       abortXhr(xhr)
-      deliverJob(job, 0, null,
-        "Spotify took too long to respond. Try again.", null)
+      deliverJob(job, 0, null, error, null)
     }
   }
 
