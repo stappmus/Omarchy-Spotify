@@ -397,7 +397,7 @@ Item {
         root.returnFromAuthentication()
       } else {
         root.checkCredentials()
-        root.lastError = "Spotify could not connect playback on this computer. Try again"
+        root.lastError = Api.playbackAuthenticationError(exitCode)
         root.authenticationFailed(root.lastError)
       }
     }

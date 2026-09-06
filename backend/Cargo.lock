@@ -1498,7 +1498,7 @@ dependencies = [
 [[package]]
 name = "librespot-oauth"
 version = "0.8.0"
-source = "git+https://github.com/stappmus/librespot?rev=6d3ecd76115c08a5e606d6f6d2181932314afed2#6d3ecd76115c08a5e606d6f6d2181932314afed2"
+source = "git+https://github.com/Brams-s/librespot?rev=8f6afe00eb5b428dde0e0023e126a14a577a2cec#8f6afe00eb5b428dde0e0023e126a14a577a2cec"
 dependencies = [
  "log",
  "oauth2",

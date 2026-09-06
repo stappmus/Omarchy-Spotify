@@ -2206,3 +2206,11 @@ function mergeUnique(existing, incoming) {
   }
   return result
 }
+
+function playbackAuthenticationError(exitCode) {
+  // Backend exit 21 identifies an occupied OAuth callback listener. Do not
+  // forward authentication stdout/stderr, which can contain OAuth URLs.
+  return Number(exitCode) === 21
+    ? "Playback authorization port 8000 is already in use. Stop the application using it, then try again."
+    : "Spotify could not connect playback on this computer. Try again"
+}

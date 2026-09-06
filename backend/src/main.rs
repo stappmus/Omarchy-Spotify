@@ -5,7 +5,7 @@ mod protocol;
 mod socket;
 mod state;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -40,7 +40,7 @@ enum Action {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+async fn main() -> Result<ExitCode> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
     let config_path = cli.config_path.unwrap_or_else(config::default_config_path);
@@ -59,10 +59,10 @@ async fn main() -> Result<()> {
     match cli.action {
         Some(Action::Check) => {
             println!("{}", serde_json::to_string(&config.summary())?);
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Action::Authenticate { oauth_port }) => {
-            return engine::authenticate(&config, oauth_port).await;
+            return authentication_result(engine::authenticate(&config, oauth_port).await);
         }
         None => {}
     }
@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
         cli.socket_path.unwrap_or_else(config::default_socket_path),
     )
     .await
+    .map(|()| ExitCode::SUCCESS)
 }
 
 async fn run(config: BackendConfig, socket_path: PathBuf) -> Result<()> {
@@ -130,4 +131,57 @@ async fn run(config: BackendConfig, socket_path: PathBuf) -> Result<()> {
     });
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), mpris_task).await;
     Ok(())
+}
+
+// Keep this code aligned with Api.playbackAuthenticationError. Only classify
+// the typed listener error, never arbitrary authentication output or URLs.
+const OAUTH_PORT_IN_USE_EXIT: u8 = 21;
+
+fn authentication_result(result: Result<()>) -> Result<ExitCode> {
+    match result {
+        Err(error) => match error.downcast_ref::<librespot_oauth::OAuthError>() {
+            Some(librespot_oauth::OAuthError::AuthCodeListenerBind { addr, e })
+                if e.kind() == std::io::ErrorKind::AddrInUse =>
+            {
+                eprintln!(
+                    "Playback authorization port {} is already in use. Stop the application using it, then try again.",
+                    addr.port()
+                );
+                Ok(ExitCode::from(OAUTH_PORT_IN_USE_EXIT))
+            }
+            _ => Err(error),
+        },
+        Ok(()) => Ok(ExitCode::SUCCESS),
+    }
+}
+
+#[cfg(test)]
+mod authentication_tests {
+    use super::*;
+    use std::{io, net::TcpListener};
+
+    #[test]
+    fn occupied_callback_port_has_a_distinct_exit_code_through_context() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let e = TcpListener::bind(addr).unwrap_err();
+        let error =
+            anyhow::Error::new(librespot_oauth::OAuthError::AuthCodeListenerBind { addr, e })
+                .context("Spotify authorization did not complete");
+        assert_eq!(
+            authentication_result(Err(error)).unwrap(),
+            ExitCode::from(21)
+        );
+    }
+
+    #[test]
+    fn other_bind_and_authentication_failures_are_not_port_conflicts() {
+        let error = librespot_oauth::OAuthError::AuthCodeListenerBind {
+            addr: "127.0.0.1:8000".parse().unwrap(),
+            e: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        assert!(authentication_result(Err(error.into())).is_err());
+        assert!(authentication_result(Err(anyhow::anyhow!("authentication failed"))).is_err());
+        assert_eq!(authentication_result(Ok(())).unwrap(), ExitCode::SUCCESS);
+    }
 }
