@@ -6,7 +6,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
+use librespot_connect::{
+    ConnectConfig, LoadContextOptions, LoadRequest, LoadRequestOptions, Options, PlayingTrack,
+    Spirc,
+};
 use librespot_core::{
     SpotifyUri,
     authentication::Credentials,
@@ -19,14 +22,16 @@ use librespot_playback::{
     audio_backend,
     config::{AudioFormat, PlayerConfig},
     mixer::{self, MixerConfig},
-    player::{Player, PlayerEvent},
+    player::{Player, PlayerEvent, QueueTrack},
 };
 use sha1::{Digest, Sha1};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::{
     config::BackendConfig,
-    protocol::{Command, Lifecycle, PlaybackStatus, ProtocolError, RepeatMode, Track},
+    protocol::{
+        BackendState, Command, Lifecycle, PlaybackStatus, ProtocolError, RepeatMode, Track,
+    },
     state::StateStore,
 };
 
@@ -34,6 +39,10 @@ const INITIAL_VOLUME: u16 = ((u16::MAX as u32 * 90) / 100) as u16;
 const ENGINE_QUEUE_CAPACITY: usize = 64;
 const RECONNECT_LIMIT: usize = 5;
 const RECONNECT_WINDOW: Duration = Duration::from_secs(10 * 60);
+// Librespot caps `next_tracks` at 80, so retain no more than it can replay.
+const MAX_RECOVERY_NEXT_TRACKS: usize = 80;
+const CONTEXT_PROVIDER: &str = "context";
+const QUEUE_PROVIDER: &str = "queue";
 const AUDIO_KEY_UNAVAILABLE_CODE: &str = "audio_key_unavailable";
 const AUDIO_KEY_UNAVAILABLE_MESSAGE: &str = "Spotify did not provide the audio key required to play this track on this computer. Try another Spotify Connect device.";
 
@@ -60,6 +69,138 @@ impl EngineRuntime {
     pub fn shutdown(&self) {
         let _ = self.shutdown.send(true);
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct RecoveryQueue {
+    context_uri: String,
+    current_track: Option<QueueTrack>,
+    next_tracks: Vec<QueueTrack>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RecoveryLoad {
+    Context {
+        uri: String,
+        current_uri: String,
+        queued_uris: Vec<String>,
+    },
+    Tracks(Vec<String>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RecoverySnapshot {
+    load: RecoveryLoad,
+    position_ms: u32,
+    play: bool,
+    volume: u16,
+    shuffle: bool,
+    repeat: RepeatMode,
+}
+
+impl RecoverySnapshot {
+    fn capture(state: &BackendState, queue: &RecoveryQueue) -> Option<Self> {
+        let play = match state.playback {
+            PlaybackStatus::Playing | PlaybackStatus::Loading => true,
+            PlaybackStatus::Paused => false,
+            PlaybackStatus::Stopped => return None,
+        };
+        let track = state.track.as_ref()?;
+        if !is_playable_uri(&track.uri) {
+            return None;
+        }
+
+        let queue_matches = queue
+            .current_track
+            .as_ref()
+            .is_some_and(|current| current.uri == track.uri);
+        let next_tracks: Vec<&QueueTrack> = if queue_matches {
+            queue
+                .next_tracks
+                .iter()
+                .filter(|next| is_playable_uri(&next.uri))
+                .take(MAX_RECOVERY_NEXT_TRACKS)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Preserve a real Spotify context when its current track belongs to that
+        // context. Flatten a shuffled context so recovery uses the captured queue
+        // entries instead of resolving the context again before shuffle is restored.
+        let load = if !state.shuffle
+            && queue_matches
+            && queue
+                .current_track
+                .as_ref()
+                .is_some_and(|current| current.provider == CONTEXT_PROVIDER)
+            && is_context_uri(&queue.context_uri)
+        {
+            RecoveryLoad::Context {
+                uri: queue.context_uri.clone(),
+                current_uri: track.uri.clone(),
+                queued_uris: next_tracks
+                    .iter()
+                    .filter(|next| next.provider == QUEUE_PROVIDER)
+                    .map(|next| next.uri.clone())
+                    .collect(),
+            }
+        } else {
+            let mut uris = Vec::with_capacity(next_tracks.len() + 1);
+            uris.push(track.uri.clone());
+            uris.extend(next_tracks.into_iter().map(|next| next.uri.clone()));
+            RecoveryLoad::Tracks(uris)
+        };
+
+        let position_ms = if track.duration_ms > 0 {
+            state.position_ms.min(track.duration_ms.saturating_sub(1))
+        } else {
+            state.position_ms
+        };
+
+        Some(Self {
+            load,
+            position_ms,
+            play,
+            volume: state.volume,
+            shuffle: state.shuffle,
+            repeat: state.repeat,
+        })
+    }
+
+    fn load_request(&self) -> LoadRequest {
+        let playing_track = match &self.load {
+            RecoveryLoad::Context { current_uri, .. } => {
+                Some(PlayingTrack::Uri(current_uri.clone()))
+            }
+            RecoveryLoad::Tracks(_) => Some(PlayingTrack::Index(0)),
+        };
+        let options = LoadRequestOptions {
+            start_playing: self.play,
+            seek_to: self.position_ms,
+            playing_track,
+            context_options: Some(LoadContextOptions::Options(Options {
+                shuffle: false,
+                repeat: self.repeat == RepeatMode::Context,
+                repeat_track: self.repeat == RepeatMode::Track,
+            })),
+        };
+
+        match &self.load {
+            RecoveryLoad::Context { uri, .. } => {
+                LoadRequest::from_context_uri(uri.clone(), options)
+            }
+            RecoveryLoad::Tracks(uris) => LoadRequest::from_tracks(uris.clone(), options),
+        }
+    }
+}
+
+fn is_playable_uri(value: &str) -> bool {
+    SpotifyUri::from_uri(value).is_ok_and(|uri| uri.is_playable())
+}
+
+fn is_context_uri(value: &str) -> bool {
+    SpotifyUri::from_uri(value).is_ok_and(|uri| !uri.is_playable())
 }
 
 pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRuntime> {
@@ -102,6 +243,7 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
         initial_volume: INITIAL_VOLUME,
         disable_volume: false,
         volume_steps: 64,
+        emit_set_queue_events: true,
         ..ConnectConfig::default()
     };
     let (spirc, spirc_task) = Spirc::new(
@@ -125,12 +267,13 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
 
     let (commands, command_rx) = mpsc::channel(ENGINE_QUEUE_CAPACITY);
     let (current_spirc_tx, current_spirc_rx) = watch::channel(Some(Arc::clone(&spirc)));
+    let (recovery_queue_tx, recovery_queue_rx) = watch::channel(RecoveryQueue::default());
     tokio::spawn(run_commands(
         command_rx,
         current_spirc_rx,
         Arc::clone(&player),
     ));
-    tokio::spawn(run_events(events, state.clone()));
+    tokio::spawn(run_events(events, state.clone(), recovery_queue_tx));
 
     let (shutdown, shutdown_rx) = watch::channel(false);
     let (done_tx, done) = oneshot::channel();
@@ -147,6 +290,7 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
             spirc,
             spirc_task,
             current_spirc_tx,
+            recovery_queue_rx,
             state,
             shutdown_rx,
         )
@@ -173,6 +317,7 @@ async fn supervise_sessions(
     mut spirc: Arc<Spirc>,
     mut spirc_task: tokio::task::JoinHandle<()>,
     current_spirc: watch::Sender<Option<Arc<Spirc>>>,
+    recovery_queue: watch::Receiver<RecoveryQueue>,
     state: StateStore,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
@@ -192,6 +337,8 @@ async fn supervise_sessions(
             }
         }
 
+        let recovery =
+            state.with(|current| RecoverySnapshot::capture(current, &recovery_queue.borrow()));
         current_spirc.send_replace(None);
         state.update(|current| {
             current.lifecycle = Lifecycle::Starting;
@@ -233,15 +380,84 @@ async fn supervise_sessions(
 
         spirc = Arc::new(next_spirc);
         spirc_task = tokio::spawn(next_task);
+        let restore_error = recovery
+            .as_ref()
+            .and_then(|snapshot| restore_playback(&spirc, snapshot).err());
         current_spirc.send_replace(Some(Arc::clone(&spirc)));
         state.update(|current| {
             current.lifecycle = Lifecycle::Ready;
             current.error_code.clear();
-            current.error.clear();
+            if let Some(error) = restore_error.as_ref() {
+                current.error =
+                    format!("Spotify reconnected, but playback could not be restored: {error}");
+            } else {
+                current.error.clear();
+            }
             true
         });
-        log::info!("reconnected the librespot session");
+        if let Some(error) = restore_error {
+            log::warn!("reconnected the librespot session without restoring playback: {error}");
+        } else if recovery.is_some() {
+            log::info!("reconnected the librespot session and queued playback restoration");
+        } else {
+            log::info!("reconnected the librespot session");
+        }
     }
+}
+
+enum RecoveryCommand {
+    Activate,
+    Load(LoadRequest),
+    AddToQueue(SpotifyUri),
+    Volume(u16),
+    Shuffle(bool),
+    RepeatTrack(bool),
+}
+
+fn restore_playback(spirc: &Spirc, snapshot: &RecoverySnapshot) -> Result<()> {
+    restore_playback_with(snapshot, |command| {
+        match command {
+            RecoveryCommand::Activate => spirc.activate()?,
+            RecoveryCommand::Load(request) => spirc.load(request)?,
+            RecoveryCommand::AddToQueue(uri) => spirc.add_to_queue(uri)?,
+            RecoveryCommand::Volume(volume) => spirc.set_volume(volume)?,
+            RecoveryCommand::Shuffle(enabled) => spirc.shuffle(enabled)?,
+            RecoveryCommand::RepeatTrack(enabled) => spirc.repeat_track(enabled)?,
+        }
+        Ok(())
+    })
+}
+
+fn restore_playback_with(
+    snapshot: &RecoverySnapshot,
+    mut send: impl FnMut(RecoveryCommand) -> Result<()>,
+) -> Result<()> {
+    send(RecoveryCommand::Activate)?;
+    send(RecoveryCommand::Load(snapshot.load_request()))?;
+
+    if let RecoveryLoad::Context { queued_uris, .. } = &snapshot.load {
+        for uri in queued_uris {
+            let uri = SpotifyUri::from_uri(uri).context("invalid queued Spotify URI")?;
+            if let Err(error) = send(RecoveryCommand::AddToQueue(uri)) {
+                log::warn!("could not restore a queued track: {error}");
+            }
+        }
+    }
+    if let Err(error) = send(RecoveryCommand::Volume(snapshot.volume)) {
+        log::warn!("could not restore playback volume: {error}");
+    }
+    if let Err(error) = send(RecoveryCommand::Shuffle(snapshot.shuffle)) {
+        log::warn!("could not restore shuffle state: {error}");
+    }
+    // Load applies repeat flags without emitting RepeatChanged. RepeatTrack
+    // publishes both current flags without rebuilding the context queue as
+    // Spirc::repeat() would. Normal interactive controls still use set_repeat.
+    if let Err(error) = send(RecoveryCommand::RepeatTrack(
+        snapshot.repeat == RepeatMode::Track,
+    )) {
+        log::warn!("could not publish restored repeat state: {error}");
+    }
+    Ok(())
 }
 
 fn record_reconnect(attempts: &mut VecDeque<Instant>, now: Instant) -> bool {
@@ -412,6 +628,7 @@ fn set_repeat(spirc: &Spirc, mode: RepeatMode) -> Result<()> {
 async fn run_events(
     mut events: tokio::sync::mpsc::UnboundedReceiver<PlayerEvent>,
     state: StateStore,
+    recovery_queue: watch::Sender<RecoveryQueue>,
 ) {
     let mut play_request_id = None;
     while let Some(event) = events.recv().await {
@@ -426,8 +643,30 @@ async fn run_events(
             log::debug!("discarding stale player event for an earlier play request");
             continue;
         }
+        if let Some(queue) = recovery_queue_from_event(&event) {
+            recovery_queue.send_replace(queue);
+            continue;
+        }
         state.update(|current| apply_event(current, event));
     }
+}
+
+fn recovery_queue_from_event(event: &PlayerEvent) -> Option<RecoveryQueue> {
+    let PlayerEvent::SetQueue {
+        context_uri,
+        current_track,
+        next_tracks,
+        ..
+    } = event
+    else {
+        return None;
+    };
+
+    Some(RecoveryQueue {
+        context_uri: context_uri.clone(),
+        current_track: current_track.clone(),
+        next_tracks: next_tracks.clone(),
+    })
 }
 
 fn event_is_stale(play_request_id: Option<u64>, event: &PlayerEvent) -> bool {
@@ -676,6 +915,18 @@ mod tests {
         SpotifyUri::from_uri("spotify:track:14XWXWv5FoCbFzLksawpEe").unwrap()
     }
 
+    fn test_track(uri: &str) -> Track {
+        Track {
+            uri: uri.to_string(),
+            title: "Test track".to_string(),
+            artists: vec!["Test artist".to_string()],
+            album: "Test album".to_string(),
+            art_url: String::new(),
+            duration_ms: 240_000,
+            item_type: "track".to_string(),
+        }
+    }
+
     #[test]
     fn loading_does_not_publish_a_false_stop_during_replacement() {
         let mut state = BackendState {
@@ -741,6 +992,235 @@ mod tests {
         );
         assert!(changed);
         assert_eq!(state.seek_sequence, 1);
+    }
+
+    #[test]
+    fn queue_events_are_captured_for_reconnect_without_protocol_state() {
+        let current = "spotify:track:14XWXWv5FoCbFzLksawpEe";
+        let next = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b";
+        let queue = recovery_queue_from_event(&PlayerEvent::SetQueue {
+            context_uri: "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M".to_string(),
+            current_track: Some(QueueTrack {
+                uri: current.to_string(),
+                provider: CONTEXT_PROVIDER.to_string(),
+            }),
+            next_tracks: vec![QueueTrack {
+                uri: next.to_string(),
+                provider: QUEUE_PROVIDER.to_string(),
+            }],
+            prev_tracks: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(queue.current_track.unwrap().uri, current);
+        assert_eq!(queue.next_tracks[0].uri, next);
+    }
+
+    #[test]
+    fn recovery_keeps_context_and_only_requeues_manual_tracks() {
+        let current = "spotify:track:14XWXWv5FoCbFzLksawpEe";
+        let queued = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b";
+        let context_next = "spotify:track:3AJwUDP919kvQ9QcozQPxg";
+        let context = "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M";
+        let state = BackendState {
+            playback: PlaybackStatus::Playing,
+            track: Some(test_track(current)),
+            position_ms: 42_000,
+            volume: 32_000,
+            repeat: RepeatMode::Context,
+            ..BackendState::default()
+        };
+        let queue = RecoveryQueue {
+            context_uri: context.to_string(),
+            current_track: Some(QueueTrack {
+                uri: current.to_string(),
+                provider: CONTEXT_PROVIDER.to_string(),
+            }),
+            next_tracks: vec![
+                QueueTrack {
+                    uri: queued.to_string(),
+                    provider: QUEUE_PROVIDER.to_string(),
+                },
+                QueueTrack {
+                    uri: context_next.to_string(),
+                    provider: CONTEXT_PROVIDER.to_string(),
+                },
+            ],
+        };
+
+        let snapshot = RecoverySnapshot::capture(&state, &queue).unwrap();
+        assert_eq!(
+            snapshot.load,
+            RecoveryLoad::Context {
+                uri: context.to_string(),
+                current_uri: current.to_string(),
+                queued_uris: vec![queued.to_string()],
+            }
+        );
+        assert_eq!(snapshot.position_ms, 42_000);
+        assert!(snapshot.play);
+        assert_eq!(snapshot.volume, 32_000);
+        assert_eq!(snapshot.repeat, RepeatMode::Context);
+    }
+
+    #[test]
+    fn recovery_flattens_shuffled_queue_and_keeps_paused_state() {
+        let current = "spotify:track:14XWXWv5FoCbFzLksawpEe";
+        let first = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b";
+        let second = "spotify:track:3AJwUDP919kvQ9QcozQPxg";
+        let state = BackendState {
+            playback: PlaybackStatus::Paused,
+            track: Some(test_track(current)),
+            position_ms: 17_000,
+            shuffle: true,
+            ..BackendState::default()
+        };
+        let queue = RecoveryQueue {
+            context_uri: "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M".to_string(),
+            current_track: Some(QueueTrack {
+                uri: current.to_string(),
+                provider: CONTEXT_PROVIDER.to_string(),
+            }),
+            next_tracks: vec![
+                QueueTrack {
+                    uri: first.to_string(),
+                    provider: QUEUE_PROVIDER.to_string(),
+                },
+                QueueTrack {
+                    uri: second.to_string(),
+                    provider: CONTEXT_PROVIDER.to_string(),
+                },
+            ],
+        };
+
+        let snapshot = RecoverySnapshot::capture(&state, &queue).unwrap();
+        assert_eq!(
+            snapshot.load,
+            RecoveryLoad::Tracks(vec![
+                current.to_string(),
+                first.to_string(),
+                second.to_string(),
+            ])
+        );
+        assert!(!snapshot.play);
+        assert!(snapshot.shuffle);
+    }
+
+    #[test]
+    fn restore_applies_repeat_on_load_and_publishes_it_after_manual_queue() {
+        for mode in [RepeatMode::Off, RepeatMode::Context, RepeatMode::Track] {
+            let current = "spotify:track:14XWXWv5FoCbFzLksawpEe";
+            let queued = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b";
+            let snapshot = RecoverySnapshot {
+                load: RecoveryLoad::Context {
+                    uri: "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M".into(),
+                    current_uri: current.into(),
+                    queued_uris: vec![queued.into()],
+                },
+                position_ms: 17_000,
+                play: false,
+                volume: 32_000,
+                shuffle: false,
+                repeat: mode,
+            };
+            let mut context_repeat = false;
+            let mut track_repeat = false;
+            let mut published_repeat = None;
+            let mut manual_queue = Vec::new();
+            let mut sequence = Vec::new();
+            restore_playback_with(&snapshot, |command| {
+                match command {
+                    RecoveryCommand::Activate => sequence.push("activate"),
+                    RecoveryCommand::Load(request) => {
+                        sequence.push("load");
+                        assert!(!request.start_playing);
+                        assert_eq!(request.seek_to, 17_000);
+                        let Some(LoadContextOptions::Options(options)) = &request.context_options
+                        else {
+                            panic!("repeat options must be applied in the load request");
+                        };
+                        assert!(!options.shuffle);
+                        context_repeat = options.repeat;
+                        track_repeat = options.repeat_track;
+                        assert_eq!(context_repeat, mode == RepeatMode::Context);
+                        assert_eq!(track_repeat, mode == RepeatMode::Track);
+                    }
+                    RecoveryCommand::AddToQueue(uri) => {
+                        sequence.push("queue");
+                        manual_queue.push(uri.to_uri());
+                    }
+                    RecoveryCommand::Volume(volume) => {
+                        sequence.push("volume");
+                        assert_eq!(volume, 32_000);
+                    }
+                    RecoveryCommand::Shuffle(enabled) => {
+                        sequence.push("shuffle");
+                        assert!(!enabled);
+                    }
+                    RecoveryCommand::RepeatTrack(enabled) => {
+                        sequence.push("repeat-event");
+                        assert_eq!(enabled, track_repeat);
+                        published_repeat = Some((context_repeat, enabled));
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(manual_queue, vec![queued]);
+            assert_eq!(
+                published_repeat,
+                Some((mode == RepeatMode::Context, mode == RepeatMode::Track))
+            );
+            assert_eq!(
+                sequence,
+                vec![
+                    "activate",
+                    "load",
+                    "queue",
+                    "volume",
+                    "shuffle",
+                    "repeat-event"
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_ignores_a_stale_queue_and_caps_position() {
+        let current = "spotify:track:14XWXWv5FoCbFzLksawpEe";
+        let state = BackendState {
+            playback: PlaybackStatus::Playing,
+            track: Some(test_track(current)),
+            position_ms: 300_000,
+            ..BackendState::default()
+        };
+        let queue = RecoveryQueue {
+            current_track: Some(QueueTrack {
+                uri: "spotify:track:0VjIjW4GlUZAMYd2vXMi3b".to_string(),
+                provider: CONTEXT_PROVIDER.to_string(),
+            }),
+            next_tracks: vec![QueueTrack {
+                uri: "spotify:track:3AJwUDP919kvQ9QcozQPxg".to_string(),
+                provider: CONTEXT_PROVIDER.to_string(),
+            }],
+            ..RecoveryQueue::default()
+        };
+
+        let snapshot = RecoverySnapshot::capture(&state, &queue).unwrap();
+        assert_eq!(
+            snapshot.load,
+            RecoveryLoad::Tracks(vec![current.to_string()])
+        );
+        assert_eq!(snapshot.position_ms, 239_999);
+    }
+
+    #[test]
+    fn stopped_playback_is_not_recovered() {
+        let state = BackendState {
+            track: Some(test_track("spotify:track:14XWXWv5FoCbFzLksawpEe")),
+            ..BackendState::default()
+        };
+        assert!(RecoverySnapshot::capture(&state, &RecoveryQueue::default()).is_none());
     }
 
     #[test]
