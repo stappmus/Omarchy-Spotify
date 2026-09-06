@@ -161,6 +161,76 @@ TestCase {
     compare(api.requestsInFlight, 2)
   }
 
+  function test_searchBlockedByCooldownReportsRemainingWait() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    api.rateLimitedUntil = 15000
+    var errors = []
+    api.search("waiting", function(groups, error) { errors.push(error) })
+    compare(requests.length, 0)
+    clock = 9000
+    api.expireTimedOutRequests(clock)
+    compare(errors, ["Spotify is busy. Try again in 6 seconds."])
+    compare(api.requestQueue.length, 0)
+    compare(api.timedJobs.length, 0)
+    clock = 15000
+    api.pumpRequests()
+    compare(requests.length, 0)
+    compare(errors.length, 1)
+  }
+
+  function test_inFlightSearchStillReportsTimeoutDuringAnotherCooldown() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    var error = ""
+    api.search("sent", function(groups, reason) { error = reason })
+    api.rateLimitedUntil = 15000
+    clock = 9000
+    api.expireTimedOutRequests(clock)
+    compare(error, "Spotify took too long to respond. Try again.")
+    verify(requests[0].aborted)
+  }
+
+  function test_cooldownCanExpireBeforeSearchDeadline() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    api.rateLimitedUntil = 4000
+    var errors = []
+    api.search("waiting", function(groups, error) { errors.push(error) })
+    clock = 4000
+    api.pumpRequests()
+    compare(requests.length, 1)
+    complete(requests[0], 200, "{\"tracks\":{\"items\":[]}}")
+    clock = 9000
+    api.expireTimedOutRequests(clock)
+    compare(errors, [""])
+  }
+
+  function test_cancelledSearchDuringCooldownHasNoStaleError() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    api.rateLimitedUntil = 15000
+    var oldCalls = 0
+    var newErrors = []
+    api.search("old", function() { oldCalls++ })
+    clock = 2000
+    api.search("new", function(groups, error) { newErrors.push(error) })
+    clock = 9000
+    api.expireTimedOutRequests(clock)
+    compare(oldCalls, 0)
+    compare(newErrors.length, 0)
+    clock = 10000
+    api.expireTimedOutRequests(clock)
+    compare(newErrors, ["Spotify is busy. Try again in 5 seconds."])
+    compare(requests.length, 0)
+  }
+
+  function test_expiredCooldownDoesNotMislabelQueuedTimeout() {
+    var api = createTemporaryObject(apiComponent, testCase)
+    api.rateLimitedUntil = 9000
+    var error = ""
+    api.search("waiting", function(groups, reason) { error = reason })
+    clock = 9000
+    api.expireTimedOutRequests(clock)
+    compare(error, "Spotify took too long to respond. Try again.")
+  }
+
   function test_search429ReturnsWithoutSilentRetry() {
     var api = createTemporaryObject(apiComponent, testCase)
     verify(api)
