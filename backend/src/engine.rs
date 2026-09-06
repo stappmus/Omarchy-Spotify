@@ -391,7 +391,7 @@ async fn supervise_sessions(
         if let Some(error) = restore_error {
             log::warn!("reconnected the librespot session without restoring playback: {error}");
         } else if recovery.is_some() {
-            log::info!("reconnected the librespot session and restored playback");
+            log::info!("reconnected the librespot session and queued playback restoration");
         } else {
             log::info!("reconnected the librespot session");
         }

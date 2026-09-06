@@ -41,9 +41,15 @@ If librespot's session task ends, the backend replaces only its Session and
 Spirc pair. The socket, MPRIS name, player, and command queue remain alive.
 Five reconnects are allowed in ten minutes; exceeding that limit exits so
 systemd can perform the existing clean restart. An active or paused track is
-restored at its last position together with its remaining queue and playback
-settings. Queue snapshots stay internal to the engine and are not published on
-the local protocol.
+queued for restoration at its last position together with its remaining queue
+and playback settings. These commands acknowledge enqueueing; they do not confirm
+that asynchronous context loading or audio playback completed. Queue snapshots
+stay internal to the engine and are not published on the local protocol.
+
+Recovery currently has a known shuffle limitation: it flattens the captured
+queue, then restoring shuffle reshuffles that list. Exact upcoming order and
+manual queue priority are therefore not preserved. Correct restoration of both
+queue order and shuffle remains required before this recovery change is ready.
 
 ## Future work
 
