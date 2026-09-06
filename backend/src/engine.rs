@@ -325,6 +325,27 @@ async fn run_commands(
 }
 
 fn execute(spirc: &Spirc, player: &Player, command: Command) -> Result<()> {
+    dispatch_local_command(command, |command| {
+        execute_spirc_command(spirc, player, command)
+    })
+}
+
+fn dispatch_local_command(
+    command: Command,
+    mut send: impl FnMut(Command) -> Result<()>,
+) -> Result<()> {
+    // Socket and MPRIS controls share this FIFO. Enqueue ownership and the
+    // transport action together, so a delayed activation cannot overtake Pause.
+    if matches!(
+        &command,
+        Command::Play | Command::Toggle | Command::Next | Command::Previous
+    ) {
+        send(Command::Activate)?;
+    }
+    send(command)
+}
+
+fn execute_spirc_command(spirc: &Spirc, player: &Player, command: Command) -> Result<()> {
     match command {
         Command::Activate => spirc.activate()?,
         Command::Play => spirc.play()?,
@@ -792,5 +813,140 @@ mod tests {
             start + Duration::from_secs(RECONNECT_LIMIT as u64)
         ));
         assert!(record_reconnect(&mut attempts, start + RECONNECT_WINDOW));
+    }
+}
+
+#[cfg(test)]
+mod local_control_tests {
+    use super::*;
+
+    // Models dispatch to a receiver with retained playback. A stopped Spirc
+    // without a loaded context still needs separate queue restoration.
+    #[derive(Default)]
+    struct Receiver {
+        active: bool,
+        playing: bool,
+        index: i32,
+        commands: Vec<Command>,
+    }
+
+    impl Receiver {
+        fn send(&mut self, command: Command) -> Result<()> {
+            self.commands.push(command.clone());
+            match command {
+                Command::Activate => self.active = true,
+                Command::Play if self.active => self.playing = true,
+                Command::Pause if self.active => self.playing = false,
+                Command::Toggle if self.active => self.playing = !self.playing,
+                Command::Next if self.active => self.index += 1,
+                Command::Previous if self.active => self.index -= 1,
+                _ => {}
+            }
+            Ok(())
+        }
+
+        fn dispatch(&mut self, command: Command) {
+            dispatch_local_command(command, |command| self.send(command)).unwrap();
+        }
+    }
+
+    #[test]
+    fn play_then_pause_cannot_be_reordered_by_activation() {
+        let mut receiver = Receiver::default();
+        receiver.dispatch(Command::Play);
+        receiver.dispatch(Command::Pause);
+        assert!(receiver.active);
+        assert!(!receiver.playing);
+        assert_eq!(
+            receiver.commands,
+            vec![Command::Activate, Command::Play, Command::Pause]
+        );
+    }
+
+    #[test]
+    fn repeated_skips_and_previous_keep_every_action_in_order() {
+        let mut receiver = Receiver::default();
+        receiver.dispatch(Command::Next);
+        receiver.dispatch(Command::Next);
+        assert_eq!(receiver.index, 2);
+        receiver.dispatch(Command::Previous);
+        assert_eq!(receiver.index, 1);
+        assert_eq!(
+            receiver.commands,
+            vec![
+                Command::Activate,
+                Command::Next,
+                Command::Activate,
+                Command::Next,
+                Command::Activate,
+                Command::Previous,
+            ]
+        );
+    }
+
+    #[test]
+    fn toggle_acquires_ownership_before_toggling_retained_playback() {
+        let mut receiver = Receiver::default();
+        receiver.dispatch(Command::Toggle);
+        assert!(receiver.active);
+        assert!(receiver.playing);
+        receiver.dispatch(Command::Toggle);
+        assert!(!receiver.playing);
+    }
+
+    #[test]
+    fn play_is_idempotent_for_active_playback() {
+        let mut receiver = Receiver {
+            active: true,
+            playing: true,
+            ..Receiver::default()
+        };
+        receiver.dispatch(Command::Play);
+        assert!(receiver.playing);
+    }
+
+    #[test]
+    fn pause_and_other_nontransport_commands_do_not_take_ownership() {
+        let mut receiver = Receiver::default();
+        let commands = vec![
+            Command::Pause,
+            Command::Stop,
+            Command::Seek { position_ms: 1000 },
+            Command::SetVolume { volume: 100 },
+            Command::SetShuffle { enabled: true },
+            Command::SetRepeat {
+                mode: RepeatMode::Track,
+            },
+        ];
+        for command in &commands {
+            receiver.dispatch(command.clone());
+        }
+        assert!(!receiver.active);
+        assert_eq!(receiver.commands, commands);
+    }
+
+    #[test]
+    fn failed_activation_does_not_dispatch_transport_action() {
+        let mut commands = Vec::new();
+        let result = dispatch_local_command(Command::Next, |command| {
+            commands.push(command);
+            bail!("receiver closed")
+        });
+        assert!(result.is_err());
+        assert_eq!(commands, vec![Command::Activate]);
+    }
+
+    #[test]
+    fn transport_error_is_returned_after_successful_activation() {
+        let mut commands = Vec::new();
+        let result = dispatch_local_command(Command::Play, |command| {
+            commands.push(command.clone());
+            if command == Command::Play {
+                bail!("receiver closed");
+            }
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(commands, vec![Command::Activate, Command::Play]);
     }
 }
