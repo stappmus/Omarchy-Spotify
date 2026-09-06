@@ -108,6 +108,30 @@ The essentials are always one click away, without reopening the full app.
 In Omarchy Spotify's Settings, choose whether **Super+Shift+M** launches
 Omarchy's Music app, toggles the full player, or toggles the mini-player.
 
+### Queue-first launcher
+
+Bind a compact, keyboard-first queue launcher with:
+
+```lua
+o.bind("SUPER + SHIFT + Q", "Omarchy Spotify queue", \
+  "omarchy shell -q quickshell.spotify.player openQueueLauncher")
+```
+
+It opens at the top-center of the screen with a **Now Playing** section: album
+artwork, the current song in Spotify green, and its artist. A divider separates
+that from a labeled, numbered queue. Use Up/Down to select a song and Enter to
+skip through Spotify's queue to it (the fourth row sends Next four times).
+Typing switches to a five-result Spotify search: Enter
+appends the selected song while keeping recently added songs at the top;
+Shift+Enter plays it immediately. The queue refreshes while the launcher is
+open and whenever the current song changes.
+
+Enter resolves the selected occurrence against Spotify's real queue and queues
+the required number of Next commands immediately through the existing
+rate-limited API transport.
+
+![Queue launcher showing the current song and numbered upcoming tracks](docs/screenshots/queue-launcher.png)
+
 Raise or lower Spotify volume from a keybinding without opening the player:
 
 ```bash

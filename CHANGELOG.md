@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a top-center, keyboard-first queue launcher with current-track artwork,
+  numbered queue navigation, five-result search, queueing, and immediate play.
+  Queue skips preserve duplicate occurrences and use the shared rate-limited
+  Spotify API transport.
 - Apply volume while the volume slider is dragged, in both the bar popup and the
   player, instead of waiting for the mouse release. Commands are coalesced per
   backend: 80 ms for local spotifyd, 250 ms for Spotify Connect devices so the

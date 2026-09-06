@@ -127,6 +127,38 @@ TestCase {
     compare(Api.filteredSorted([rows[0], null, rows[1]], "", "default"), rows)
   }
 
+  function test_queueLauncherPriorityOrderAndSkipPositions() {
+    var a = { uri: "spotify:track:a", name: "A" }
+    var b = { uri: "spotify:track:b", name: "B" }
+    var c = { uri: "spotify:track:c", name: "C" }
+    compare(Api.mergePriorityQueue([b, c], [a, b, c]), [b, c, a])
+    compare(Api.queueSkipCount(0, 3), 1)
+    compare(Api.queueSkipCount(2, 3), 3)
+    compare(Api.queueSkipCount(3, 3), 0)
+    compare(Api.queueSkipCount(-1, 3), 0)
+    compare(Api.queueItemIndex([a, b, c], b), 1)
+    compare(Api.queueItemIndex([a, b, c], { uri: "spotify:track:nope" }), -1)
+    compare(Api.queueItemIndex([a, b, b, c], b), 1)
+    compare(Api.queueItemIndex([a, b, b, c], { uri: b.uri }), -1)
+    compare(Api.queueItemIndex([a, b, b, c], {
+      uri: b.uri, queuePosition: 2
+    }), 2)
+    var prioritized = Api.mergePriorityQueue([b], [
+      a,
+      { uri: b.uri, name: b.name, queuePosition: 1 },
+      c
+    ])
+    compare(prioritized[0].queuePosition, 1)
+    var prioritizedDuplicates = Api.mergePriorityQueue([b, b], [
+      a,
+      { uri: b.uri, name: b.name, queuePosition: 1 },
+      { uri: b.uri, name: b.name, queuePosition: 2 },
+      c
+    ])
+    compare(prioritizedDuplicates[0].queuePosition, 1)
+    compare(prioritizedDuplicates[1].queuePosition, 2)
+  }
+
   function test_spotifydVolumeCurve_hasStableEndpointsAndRoundTrips() {
     compare(Api.spotifydVolumeToSlider(0), 0)
     compare(Api.spotifydVolumeToSlider(1), 1)

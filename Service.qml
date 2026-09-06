@@ -2677,7 +2677,10 @@ Item {
           var next = []
           for (var i = 0; i < source.length && next.length < 100; i++) {
             var track = Api.normalizeTrack(source[i], 96)
-            if (track) next.push(track)
+            if (track) {
+              track.queuePosition = next.length
+              next.push(track)
+            }
           }
           root.queue = next
           root.queueLoaded = true
@@ -3232,6 +3235,29 @@ Item {
     if (sendSonosControl("next", "")) return
     if (!useRemotePlayback && hasLocalPlayer && activePlayer.canGoNext) activePlayer.next()
     else remotePlayerAction("POST", "/me/player/next", controlQuery())
+  }
+
+  function nextBurst(count) {
+    var total = Math.max(0, Math.min(100,
+      Math.floor(Number(count) || 0)))
+    if (!total) return
+    noteActivity()
+
+    if (!useRemotePlayback && hasLocalPlayer && activePlayer.canGoNext) {
+      for (var localStep = 0; localStep < total; localStep++)
+        activePlayer.next()
+      return
+    }
+
+    var completed = 0
+    var query = controlQuery()
+    for (var step = 0; step < total; step++) {
+      spotifyApi.request("POST", "/me/player/next", query, null,
+        function() {
+          completed++
+          if (completed === total) root.loadPlaybackState()
+        })
+    }
   }
 
   function previous() {
