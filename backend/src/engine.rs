@@ -6,7 +6,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
+use librespot_connect::{
+    ConnectConfig, LoadContextOptions, LoadRequest, LoadRequestOptions, Options, PlayingTrack,
+    Spirc,
+};
 use librespot_core::{
     SpotifyUri,
     authentication::Credentials,
@@ -176,7 +179,11 @@ impl RecoverySnapshot {
             start_playing: self.play,
             seek_to: self.position_ms,
             playing_track,
-            ..LoadRequestOptions::default()
+            context_options: Some(LoadContextOptions::Options(Options {
+                shuffle: false,
+                repeat: self.repeat == RepeatMode::Context,
+                repeat_track: self.repeat == RepeatMode::Track,
+            })),
         };
 
         match &self.load {
@@ -398,26 +405,57 @@ async fn supervise_sessions(
     }
 }
 
+enum RecoveryCommand {
+    Activate,
+    Load(LoadRequest),
+    AddToQueue(SpotifyUri),
+    Volume(u16),
+    Shuffle(bool),
+    RepeatTrack(bool),
+}
+
 fn restore_playback(spirc: &Spirc, snapshot: &RecoverySnapshot) -> Result<()> {
-    spirc.activate()?;
-    spirc.load(snapshot.load_request())?;
+    restore_playback_with(snapshot, |command| {
+        match command {
+            RecoveryCommand::Activate => spirc.activate()?,
+            RecoveryCommand::Load(request) => spirc.load(request)?,
+            RecoveryCommand::AddToQueue(uri) => spirc.add_to_queue(uri)?,
+            RecoveryCommand::Volume(volume) => spirc.set_volume(volume)?,
+            RecoveryCommand::Shuffle(enabled) => spirc.shuffle(enabled)?,
+            RecoveryCommand::RepeatTrack(enabled) => spirc.repeat_track(enabled)?,
+        }
+        Ok(())
+    })
+}
+
+fn restore_playback_with(
+    snapshot: &RecoverySnapshot,
+    mut send: impl FnMut(RecoveryCommand) -> Result<()>,
+) -> Result<()> {
+    send(RecoveryCommand::Activate)?;
+    send(RecoveryCommand::Load(snapshot.load_request()))?;
 
     if let RecoveryLoad::Context { queued_uris, .. } = &snapshot.load {
         for uri in queued_uris {
             let uri = SpotifyUri::from_uri(uri).context("invalid queued Spotify URI")?;
-            if let Err(error) = spirc.add_to_queue(uri) {
+            if let Err(error) = send(RecoveryCommand::AddToQueue(uri)) {
                 log::warn!("could not restore a queued track: {error}");
             }
         }
     }
-    if let Err(error) = spirc.set_volume(snapshot.volume) {
+    if let Err(error) = send(RecoveryCommand::Volume(snapshot.volume)) {
         log::warn!("could not restore playback volume: {error}");
     }
-    if let Err(error) = spirc.shuffle(snapshot.shuffle) {
+    if let Err(error) = send(RecoveryCommand::Shuffle(snapshot.shuffle)) {
         log::warn!("could not restore shuffle state: {error}");
     }
-    if let Err(error) = set_repeat(spirc, snapshot.repeat) {
-        log::warn!("could not restore repeat state: {error}");
+    // Load applies repeat flags without emitting RepeatChanged. RepeatTrack
+    // publishes both current flags without rebuilding the context queue as
+    // Spirc::repeat() would. Normal interactive controls still use set_repeat.
+    if let Err(error) = send(RecoveryCommand::RepeatTrack(
+        snapshot.repeat == RepeatMode::Track,
+    )) {
+        log::warn!("could not publish restored repeat state: {error}");
     }
     Ok(())
 }
@@ -1066,6 +1104,85 @@ mod tests {
         );
         assert!(!snapshot.play);
         assert!(snapshot.shuffle);
+    }
+
+    #[test]
+    fn restore_applies_repeat_on_load_and_publishes_it_after_manual_queue() {
+        for mode in [RepeatMode::Off, RepeatMode::Context, RepeatMode::Track] {
+            let current = "spotify:track:14XWXWv5FoCbFzLksawpEe";
+            let queued = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b";
+            let snapshot = RecoverySnapshot {
+                load: RecoveryLoad::Context {
+                    uri: "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M".into(),
+                    current_uri: current.into(),
+                    queued_uris: vec![queued.into()],
+                },
+                position_ms: 17_000,
+                play: false,
+                volume: 32_000,
+                shuffle: false,
+                repeat: mode,
+            };
+            let mut context_repeat = false;
+            let mut track_repeat = false;
+            let mut published_repeat = None;
+            let mut manual_queue = Vec::new();
+            let mut sequence = Vec::new();
+            restore_playback_with(&snapshot, |command| {
+                match command {
+                    RecoveryCommand::Activate => sequence.push("activate"),
+                    RecoveryCommand::Load(request) => {
+                        sequence.push("load");
+                        assert!(!request.start_playing);
+                        assert_eq!(request.seek_to, 17_000);
+                        let Some(LoadContextOptions::Options(options)) = &request.context_options
+                        else {
+                            panic!("repeat options must be applied in the load request");
+                        };
+                        assert!(!options.shuffle);
+                        context_repeat = options.repeat;
+                        track_repeat = options.repeat_track;
+                        assert_eq!(context_repeat, mode == RepeatMode::Context);
+                        assert_eq!(track_repeat, mode == RepeatMode::Track);
+                    }
+                    RecoveryCommand::AddToQueue(uri) => {
+                        sequence.push("queue");
+                        manual_queue.push(uri.to_uri());
+                    }
+                    RecoveryCommand::Volume(volume) => {
+                        sequence.push("volume");
+                        assert_eq!(volume, 32_000);
+                    }
+                    RecoveryCommand::Shuffle(enabled) => {
+                        sequence.push("shuffle");
+                        assert!(!enabled);
+                    }
+                    RecoveryCommand::RepeatTrack(enabled) => {
+                        sequence.push("repeat-event");
+                        assert_eq!(enabled, track_repeat);
+                        published_repeat = Some((context_repeat, enabled));
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(manual_queue, vec![queued]);
+            assert_eq!(
+                published_repeat,
+                Some((mode == RepeatMode::Context, mode == RepeatMode::Track))
+            );
+            assert_eq!(
+                sequence,
+                vec![
+                    "activate",
+                    "load",
+                    "queue",
+                    "volume",
+                    "shuffle",
+                    "repeat-event"
+                ]
+            );
+        }
     }
 
     #[test]

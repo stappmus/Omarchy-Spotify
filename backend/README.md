@@ -50,6 +50,7 @@ Recovery currently has a known shuffle limitation: it flattens the captured
 queue, then restoring shuffle reshuffles that list. Exact upcoming order and
 manual queue priority are therefore not preserved. Correct restoration of both
 queue order and shuffle remains required before this recovery change is ready.
+See [RECOVERY.md](RECOVERY.md) for the dependency contract and acceptance tests.
 
 ## Future work
 
