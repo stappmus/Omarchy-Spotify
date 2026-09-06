@@ -142,7 +142,8 @@ Item {
     while (requestsInFlight < Api.apiInFlightLimit(restrictInFlight)) {
       var wait = Api.apiCooldownMs(now(), rateLimitedUntil)
       if (wait > 0) {
-        rateLimitTimer.interval = Math.max(50, wait)
+        // Timer.interval is a signed int; recheck longer cooldowns in chunks.
+        rateLimitTimer.interval = Math.min(2147483647, Math.max(50, wait))
         rateLimitTimer.restart()
         break
       }
@@ -294,6 +295,7 @@ Item {
 
   Timer {
     id: rateLimitTimer
+    objectName: "rateLimitTimer"
     repeat: false
     onTriggered: root.pumpRequests()
   }

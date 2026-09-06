@@ -224,7 +224,7 @@ TestCase {
     compare(Api.rateLimitRetryMs("0"), 1400)
     compare(Api.rateLimitRetryMs("1"), 1400)
     compare(Api.rateLimitRetryMs("1", 2), 4400)
-    compare(Api.rateLimitRetryMs("120"), 30000)
+    compare(Api.rateLimitRetryMs("120"), 120400)
     compare(Api.rateLimitRetryMs(""), 10000)
     compare(Api.rateLimitRetryMs("Wed, 21 Oct 2015 07:28:00 GMT"), 10000)
     compare(Api.apiCooldownMs(1000, 1500), 500)
@@ -238,6 +238,32 @@ TestCase {
       }
     }), "10")
     verify(Api.localSocketFallbackMessage().indexOf("local player") >= 0)
+  }
+
+  function test_rateLimitRetryMs_data() {
+    return [
+      { tag: "below-cap", header: "29", attempt: 0, expected: 29400 },
+      { tag: "at-cap", header: "30", attempt: 0, expected: 30400 },
+      { tag: "above-cap", header: "31", attempt: 0, expected: 31400 },
+      { tag: "two-minutes", header: "120", attempt: 0, expected: 120400 },
+      { tag: "one-hour", header: "3600", attempt: 0, expected: 3600400 },
+      { tag: "backoff-capped", header: "1", attempt: 10, expected: 30400 },
+      { tag: "header-exceeds-backoff", header: "120", attempt: 10, expected: 120400 },
+      { tag: "zero", header: "0", attempt: 0, expected: 1400 },
+      { tag: "missing", header: "", attempt: 0, expected: 10000 },
+      { tag: "invalid", header: "invalid", attempt: 0, expected: 10000 },
+      { tag: "negative", header: "-1", attempt: 0, expected: 10000 },
+      { tag: "nonfinite", header: "Infinity", attempt: 0, expected: 10000 }
+    ]
+  }
+
+  function test_rateLimitRetryMs(data) {
+    compare(Api.rateLimitRetryMs(data.header, data.attempt), data.expected)
+  }
+
+  function test_longRateLimitDoesNotShortenExistingDeadline() {
+    compare(Api.nextRateLimitedUntil(1000, "120", 200000), 200000)
+    compare(Api.nextRateLimitedUntil(1000, "120", 4000), 121400)
   }
 
   function test_apiRequestQueue_ordersMutationsAndSkipsAborted() {
