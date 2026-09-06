@@ -99,6 +99,64 @@ function shallowCopy(value) {
   return copy
 }
 
+// Spotify's Web API can append to a queue but cannot reorder it. The launcher
+// keeps its recently added items at the head of the displayed queue and removes
+// their corresponding appended copies from the base queue once they arrive.
+function queueItemIdentity(item) {
+  if (!item || typeof item !== "object") return ""
+  return String(item.uri || item.id || "")
+}
+
+function mergePriorityQueue(priorityItems, queueItems) {
+  var base = Array.isArray(queueItems) ? queueItems.slice() : []
+  var priority = Array.isArray(priorityItems) ? priorityItems : []
+  var result = []
+  for (var i = 0; i < priority.length; i++) {
+    var item = priority[i]
+    var identity = queueItemIdentity(item)
+    if (!identity) continue
+    var displayed = item
+    for (var j = 0; j < base.length; j++) {
+      if (queueItemIdentity(base[j]) === identity) {
+        if (base[j].queuePosition !== undefined) {
+          displayed = shallowCopy(item)
+          displayed.queuePosition = base[j].queuePosition
+        }
+        base.splice(j, 1)
+        break
+      }
+    }
+    result.push(displayed)
+  }
+  return result.concat(base)
+}
+
+function queueSkipCount(index, length) {
+  var position = Math.floor(Number(index))
+  var size = Math.max(0, Math.floor(Number(length) || 0))
+  return position >= 0 && position < size ? position + 1 : 0
+}
+
+function queueItemIndex(items, item) {
+  var values = Array.isArray(items) ? items : []
+  var target = queueItemIdentity(item)
+  if (!target) return -1
+  var position = Number(item.queuePosition)
+  if (isFinite(position) && Math.floor(position) === position
+      && position >= 0 && position < values.length
+      && queueItemIdentity(values[position]) === target)
+    return position
+  for (var referenceIndex = 0; referenceIndex < values.length; referenceIndex++)
+    if (values[referenceIndex] === item) return referenceIndex
+  var match = -1
+  for (var i = 0; i < values.length; i++) {
+    if (queueItemIdentity(values[i]) !== target) continue
+    if (match >= 0) return -1
+    match = i
+  }
+  return match
+}
+
 function assign(target, source) {
   var next = target && typeof target === "object" && !Array.isArray(target)
     ? target : ({})

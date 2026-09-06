@@ -111,6 +111,12 @@ BarWidget {
     popupOpen = false
   }
 
+  function openQueueLauncher() {
+    close()
+    queueLauncher.openLauncher()
+    return "opened"
+  }
+
   function applySequenceModifiers(sequence) {
     var parsed = Api.parseShortcutSequence(sequence)
     var flags = 0
@@ -273,6 +279,10 @@ BarWidget {
       return root.toggleFullPlayerShortcut()
     }
 
+    function openQueueLauncher(): string {
+      return root.openQueueLauncher()
+    }
+
     function volumeUp(): string {
       return root.adjustVolume(0.05) ? "ok" : "unavailable"
     }
@@ -280,6 +290,14 @@ BarWidget {
     function volumeDown(): string {
       return root.adjustVolume(-0.05) ? "ok" : "unavailable"
     }
+  }
+
+  QueueLauncher {
+    id: queueLauncher
+    anchorItem: button
+    bar: root.bar
+    owner: root
+    spotify: root.spotify
   }
 
   function openCurrentArtist() {
