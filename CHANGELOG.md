@@ -2,6 +2,11 @@
 
 ## 1.0.4 (unreleased)
 
+- Add a playback watchdog that recovers the native backend when it holds its
+  socket open but stops answering, so play/pause/volume can no longer freeze
+  until a manual restart. It only acts while the backend unit is active and
+  never resurrects an idle-stopped or manually stopped backend.
+
 - Cancel obsolete search pages, reuse pending searches and cached categories,
   and show queued, authorization, fetching, and cooldown progress.
 - Bound stalled API and token requests. Keep a private-query-free diagnostic

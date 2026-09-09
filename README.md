@@ -144,6 +144,13 @@ still match that tagged source. If verification is unavailable, setup builds
 the locked Rust source locally or offers Omarchy's packaged `spotifyd` fallback
 instead of executing an unverified download.
 
+A small playback watchdog (`systemd/omarchy-spotify-watchdog.service`) is
+installed and enabled at login. It runs for the whole graphical session but
+only acts while the playback backend unit is active: if the backend holds its
+socket open yet stops answering `ping` (a silent wedge that otherwise freezes
+play/pause/volume until a manual restart), the watchdog bounces the unit
+automatically. It never restarts an idle-stopped or manually stopped backend.
+
 ## Seeing "Spotify is busy." or slow searches?
 
 The plugin's Spotify Web API client ID is shared by every install worldwide,

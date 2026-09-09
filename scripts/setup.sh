@@ -11,8 +11,10 @@ usage() {
   cat <<'EOF'
 Usage: scripts/setup.sh [--install-spotifyd] [--skip-backend-build] [--force-config] [--device-name NAME]
 
-Verify or build the plugin-owned playback backend and install its user unit.
-spotifyd remains an optional fallback. Neither unit is enabled at login.
+Verify or build the plugin-owned playback backend and install its user unit,
+plus the playback watchdog that recovers the backend from a silent wedge.
+spotifyd remains an optional fallback. The backend unit is on-demand; the
+watchdog unit is enabled at login.
 EOF
 }
 
@@ -81,6 +83,8 @@ backend_binary_hash_file="$runtime_dir/backend-binary.sha256"
 backend_ready=0
 backend_changed=0
 unit_changed=0
+watchdog_script="$runtime_dir/omarchy-spotify-watchdog.py"
+watchdog_unit_file="$unit_dir/omarchy-spotify-watchdog.service"
 
 backend_install_is_current() {
   local current_source_id expected_source_id expected_binary_hash actual_binary_hash
@@ -143,7 +147,18 @@ fi
 if command -v spotifyd >/dev/null 2>&1 || [[ -f $fallback_unit_file ]]; then
   install -m 644 -- "$source_root/systemd/omarchy-spotifyd.service" "$fallback_unit_file"
 fi
+# The watchdog supervises the on-demand backend unit. It is intentionally
+# enabled at login: it costs nothing while the backend is inactive (it only
+# probes when the unit is active) and recovers the backend from a "silent but
+# open" wedge. Installing alongside the backend binary means an isolated
+# OMARCHY_SPOTIFY_RUNTIME_DIR keeps it hermetic in tests.
+install -d -m 700 -- "$runtime_dir"
+install -m 700 -- "$source_root/scripts/spotify-watchdog.py" "$watchdog_script"
+install -m 644 -- "$source_root/systemd/omarchy-spotify-watchdog.service" "$watchdog_unit_file"
 systemctl --user daemon-reload
+systemctl --user enable --now omarchy-spotify-watchdog.service >/dev/null 2>&1 || {
+  echo "Warning: could not enable the playback watchdog; the backend will not self-recover." >&2
+}
 
 if (( backend_ready && backend_was_active && (backend_changed || unit_changed) )); then
   systemctl --user restart omarchy-spotify.service
