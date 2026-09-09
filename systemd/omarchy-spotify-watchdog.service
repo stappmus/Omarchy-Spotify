@@ -1,0 +1,19 @@
+[Unit]
+Description=Omarchy Spotify backend watchdog
+Documentation=https://github.com/stappmus/Omarchy-Spotify
+# Supervises the on-demand playback backend unit. It runs for the whole
+# graphical session but only acts while the backend unit is active, so idle
+# stops and user stops are never resurrected.
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/omarchy-spotify/omarchy-spotify-watchdog.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target
