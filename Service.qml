@@ -22,8 +22,11 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
+  // The host strips __sourceDir from third-party manifests, so it is only ever
+  // populated for first-party plugins. Fall back to this file's own directory,
+  // which every host resolves identically and no host can withhold.
   readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+    ? String(manifest.__sourceDir) : localSourceDir()
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
@@ -647,22 +650,41 @@ Item {
     else if (pluginHasKeys) stripPluginSessionKeys()
   }
 
-  function configuredEntry() {
-    var config = shell && shell.shellConfig ? shell.shellConfig : null
-    if (!config) return null
-    var layout = config.bar && config.bar.layout ? config.bar.layout : null
+  // Qt.resolvedUrl(".") is this file's directory, so it survives a host that
+  // withholds the manifest's source path.
+  function localSourceDir() {
+    var dir = String(Qt.resolvedUrl("."))
+    if (dir.indexOf("file://") === 0) dir = dir.substring(7)
+    return dir.replace(/\/+$/, "")
+  }
+
+  function entryInLayout(layout) {
+    if (!layout) return null
     var sections = ["left", "center", "right"]
-    if (layout) {
-      for (var s = 0; s < sections.length; s++) {
-        var rows = Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
-        for (var i = 0; i < rows.length; i++)
-          if (rows[i] && String(rows[i].id || "") === pluginId) return rows[i]
-      }
+    for (var s = 0; s < sections.length; s++) {
+      var rows = Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
+      for (var i = 0; i < rows.length; i++)
+        if (rows[i] && String(rows[i].id || "") === pluginId) return rows[i]
     }
-    var plugins = Array.isArray(config.plugins) ? config.plugins : []
-    for (var p = 0; p < plugins.length; p++)
-      if (plugins[p] && String(plugins[p].id || "") === pluginId) return plugins[p]
     return null
+  }
+
+  function configuredEntry() {
+    // shellConfig is first-party only. Third-party plugins get the bar section
+    // of the same config as shell.barConfig, so read whichever the host gave
+    // us before falling back to the standalone plugins list.
+    var config = shell && shell.shellConfig ? shell.shellConfig : null
+    if (config) {
+      var owned = entryInLayout(config.bar && config.bar.layout
+        ? config.bar.layout : null)
+      if (owned) return owned
+      var plugins = Array.isArray(config.plugins) ? config.plugins : []
+      for (var p = 0; p < plugins.length; p++)
+        if (plugins[p] && String(plugins[p].id || "") === pluginId) return plugins[p]
+      return null
+    }
+    var barConfig = shell && shell.barConfig ? shell.barConfig : null
+    return entryInLayout(barConfig && barConfig.layout ? barConfig.layout : null)
   }
 
   function syncSettings() {
@@ -3766,6 +3788,9 @@ Item {
     target: root.shell
     ignoreUnknownSignals: true
     function onShellConfigChanged() { root.syncSettings() }
+    // Third-party plugins never see shellConfig; the host republishes their
+    // slice as barConfig instead, so live setting edits arrive here.
+    function onBarConfigChanged() { root.syncSettings() }
   }
 
   Connections {
