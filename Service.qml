@@ -22,8 +22,12 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  // Third-party manifests do not expose the host's private source directory.
+  readonly property string pluginDir: {
+    var sourceUrl = String(Qt.resolvedUrl("./"))
+    return sourceUrl.indexOf("file://") === 0
+      ? decodeURIComponent(sourceUrl.slice(7)).replace(/\/$/, "") : ""
+  }
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
