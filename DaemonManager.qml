@@ -414,9 +414,20 @@ Item {
 
   Process {
     id: authCommand
+    // The backend generates its own PKCE challenge and prints the resulting
+    // authorization URL as "Browse to: <url>" on stdout; open it for the
+    // user instead of discarding it, or local playback auth can never
+    // complete headlessly.
     stdout: SplitParser {
       splitMarker: "\n"
-      onRead: function(line) { root.safeError(line) }
+      onRead: function(line) {
+        var prefix = "Browse to: "
+        if (line.indexOf(prefix) === 0) {
+          Quickshell.execDetached(["xdg-open", line.slice(prefix.length)])
+          return
+        }
+        root.safeError(line)
+      }
     }
     // Consume authentication output without forwarding it to the journal or
     // retaining it in a long-lived collector.
