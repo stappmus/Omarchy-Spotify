@@ -648,7 +648,11 @@ Item {
   }
 
   function configuredEntry() {
-    var config = shell && shell.shellConfig ? shell.shellConfig : null
+    // Omarchy exposes the bar section to third-party plugins as barConfig,
+    // not the whole shellConfig. Without this fallback a fresh shell start
+    // finds no entry and resets every widget setting to its default.
+    var config = shell && shell.shellConfig ? shell.shellConfig
+      : (shell && shell.barConfig ? { bar: shell.barConfig } : null)
     if (!config) return null
     var layout = config.bar && config.bar.layout ? config.bar.layout : null
     var sections = ["left", "center", "right"]
@@ -3766,6 +3770,7 @@ Item {
     target: root.shell
     ignoreUnknownSignals: true
     function onShellConfigChanged() { root.syncSettings() }
+    function onBarConfigChanged() { root.syncSettings() }
   }
 
   Connections {
