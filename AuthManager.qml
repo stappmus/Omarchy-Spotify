@@ -31,7 +31,18 @@ Item {
     ? (customClientId ? customClientId.toLowerCase() : clientId) : ""
   property bool initialized: false
   property bool switchingIdentity: false
+  // customClientId is bound to the host's persisted settings, which load
+  // asynchronously and start out empty. A caller whose settings arrive late
+  // (e.g. Service.qml) should keep this false until that first load lands,
+  // so the initial "" -> saved-value jump isn't mistaken for the user
+  // switching apps and doesn't force an unwanted re-login on every startup.
+  property bool settingsReady: true
   Component.onCompleted: {
+    if (settingsReady) armIdentityTracking()
+  }
+  onSettingsReadyChanged: if (settingsReady) armIdentityTracking()
+  function armIdentityTracking() {
+    if (initialized) return
     initialized = true
     if (!validClientId) changeIdentity()
   }

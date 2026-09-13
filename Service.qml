@@ -53,6 +53,11 @@ Item {
     clientId: ""
   })
   property var settings: Api.shallowCopy(defaultSettingValues)
+  // False until the first syncSettings() has read the real config (settings
+  // starts out defaulted to an empty clientId above). Gates AuthManager so
+  // that first async load-in of a saved personal client ID isn't treated as
+  // the user switching Spotify apps mid-session.
+  property bool settingsReady: false
 
   readonly property string deviceName: String(settings.deviceName || "Omarchy Spotify").trim() || "Omarchy Spotify"
   readonly property int idleShutdownMinutes: Math.max(0, Math.min(1440,
@@ -667,6 +672,7 @@ Item {
 
   function syncSettings() {
     applySettings(configuredEntry() || {})
+    if (shell && shell.shellConfig) settingsReady = true
     reconcileSessionPersistence()
     resumeLyricsInstallIntent()
   }
@@ -4140,6 +4146,7 @@ Item {
     id: authManager
     pluginDir: root.pluginDir
     customClientId: settings.clientId
+    settingsReady: root.settingsReady
   }
 
   AuthManager {
