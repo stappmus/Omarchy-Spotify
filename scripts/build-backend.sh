@@ -12,6 +12,14 @@ architecture=$(uname -m)
 repository=stappmus/Omarchy-Spotify
 workflow_identity="https://github.com/$repository/.github/workflows/release-backend.yml"
 
+# download_verified_release() reports why it gave up. A release that is merely
+# unavailable here (no tooling, no network, no matching tag) is routine and
+# stays quiet. An artifact that downloaded but then disagreed with the release's
+# own SHA256SUMS or attestation is not routine, and saying so is the only way a
+# user can tell a missing gh from a substituted binary.
+readonly release_unavailable=1
+readonly release_unverified=2
+
 # Build outside the plugin directory: Omarchy hot-reloads a plugin whenever any
 # file inside it changes, so an in-place backend/target/ makes its recursive
 # watcher unload and reload the plugin for every Cargo write, killing the build.
@@ -60,68 +68,94 @@ install_backend() {
 source_id=$("$source_root/scripts/backend-source-id.sh")
 
 download_verified_release() {
-  local version expected_ref checksum_line expected_hash actual_hash release_base
+  local version expected_ref expected_hash checksum_output actual_hash release_base
 
   for command_name in awk curl gh git python3 sha256sum stat; do
-    command -v "$command_name" >/dev/null 2>&1 || return 1
+    command -v "$command_name" >/dev/null 2>&1 || return "$release_unavailable"
   done
   [[ -z $(git -C "$source_root" status --porcelain --untracked-files=normal \
-    -- backend rust-toolchain.toml 2>/dev/null) ]] || return 1
+    -- backend rust-toolchain.toml 2>/dev/null) ]] || return "$release_unavailable"
 
   version=$(python3 -c \
     'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
-    "$source_root/manifest.json") || return 1
-  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || return 1
+    "$source_root/manifest.json") || return "$release_unavailable"
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] \
+    || return "$release_unavailable"
   expected_ref="refs/tags/v$version"
   verified_commit=$(git -C "$source_root" rev-parse "$expected_ref^{commit}" \
-    2>/dev/null) || return 1
-  [[ $verified_commit =~ ^[0-9a-f]{40}$ ]] || return 1
+    2>/dev/null) || return "$release_unavailable"
+  [[ $verified_commit =~ ^[0-9a-f]{40}$ ]] || return "$release_unavailable"
   git -C "$source_root" merge-base --is-ancestor "$verified_commit" HEAD \
-    2>/dev/null || return 1
+    2>/dev/null || return "$release_unavailable"
   git -C "$source_root" diff --quiet "$verified_commit" HEAD -- \
-    backend rust-toolchain.toml || return 1
+    backend rust-toolchain.toml || return "$release_unavailable"
 
   case $architecture in
     x86_64|aarch64) release_asset="omarchy-spotify-backend-$architecture" ;;
-    *) return 1 ;;
+    *) return "$release_unavailable" ;;
   esac
   release_base="https://github.com/$repository/releases/download/v$version"
   download_dir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-spotify-release.XXXXXX")
 
   curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --retry 2 \
     --connect-timeout 5 --max-time 60 --max-filesize 33554432 \
-    -o "$download_dir/$release_asset" "$release_base/$release_asset" || return 1
-  [[ $(stat -c '%s' "$download_dir/$release_asset") -le 33554432 ]] || return 1
+    -o "$download_dir/$release_asset" "$release_base/$release_asset" \
+    || return "$release_unavailable"
+  [[ $(stat -c '%s' "$download_dir/$release_asset") -le 33554432 ]] \
+    || return "$release_unavailable"
   curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --retry 2 \
     --connect-timeout 5 --max-time 60 --max-filesize 1048576 \
-    -o "$download_dir/SHA256SUMS" "$release_base/SHA256SUMS" || return 1
-  [[ $(stat -c '%s' "$download_dir/SHA256SUMS") -le 1048576 ]] || return 1
+    -o "$download_dir/SHA256SUMS" "$release_base/SHA256SUMS" \
+    || return "$release_unavailable"
+  [[ $(stat -c '%s' "$download_dir/SHA256SUMS") -le 1048576 ]] \
+    || return "$release_unavailable"
 
-  checksum_line=$(awk -v asset="$release_asset" \
+  # A release that does not list this asset is treated as unavailable: an
+  # architecture can legitimately be absent from a given release.
+  expected_hash=$(awk -v asset="$release_asset" \
     '$2 == asset || $2 == "*" asset { print $1; exit }' \
     "$download_dir/SHA256SUMS")
-  [[ $checksum_line =~ ^[0-9a-f]{64}$ ]] || return 1
-  actual_hash=$(sha256sum -- "$download_dir/$release_asset") || return 1
-  expected_hash=${actual_hash%% *}
-  [[ $expected_hash == "$checksum_line" ]] || return 1
+  [[ $expected_hash =~ ^[0-9a-f]{64}$ ]] || return "$release_unavailable"
+  checksum_output=$(sha256sum -- "$download_dir/$release_asset") \
+    || return "$release_unavailable"
+  actual_hash=${checksum_output%% *}
+  if [[ $actual_hash != "$expected_hash" ]]; then
+    printf 'Release asset %s does not match the SHA256SUMS published for v%s.\n' \
+      "$release_asset" "$version" >&2
+    printf 'Published %s, downloaded %s.\n' "$expected_hash" "$actual_hash" >&2
+    return "$release_unverified"
+  fi
 
-  GH_PROMPT_DISABLED=1 gh attestation verify "$download_dir/$release_asset" \
+  if ! GH_PROMPT_DISABLED=1 gh attestation verify "$download_dir/$release_asset" \
     --repo "$repository" \
     --cert-identity "$workflow_identity@$expected_ref" \
     --source-ref "$expected_ref" \
     --source-digest "$verified_commit" \
-    --deny-self-hosted-runners >/dev/null 2>&1 || return 1
+    --deny-self-hosted-runners >/dev/null 2>&1; then
+    printf 'Release asset %s failed attestation verification for %s.\n' \
+      "$release_asset" "$expected_ref" >&2
+    return "$release_unverified"
+  fi
 
   verified_release="$download_dir/$release_asset"
 }
 
 if [[ ${OMARCHY_SPOTIFY_BUILD_FROM_SOURCE:-0} != 1 ]]; then
-  if download_verified_release; then
+  verification_status=0
+  download_verified_release || verification_status=$?
+  if (( verification_status == 0 )); then
     install_backend "$verified_release" "attested-release:$verified_commit"
     printf 'Installed verified playback backend: %s\n' "$destination"
     exit 0
   fi
-  echo "Verified playback release unavailable; trying a locked source build." >&2
+  if (( verification_status == release_unverified )); then
+    echo "Discarding the downloaded release asset: it did not verify." >&2
+    echo "A corrupted download or an unreachable attestation API looks the same" >&2
+    echo "as a substituted binary from here, so do not install it by hand." >&2
+    echo "Building from the locked source tree, already matched to the tag." >&2
+  else
+    echo "Verified playback release unavailable; trying a locked source build." >&2
+  fi
 fi
 
 command -v cargo >/dev/null 2>&1 || {
