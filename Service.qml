@@ -22,8 +22,8 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  readonly property string pluginDir: String(Qt.resolvedUrl("."))
+    .replace(/^file:\/\//, "").replace(/\/$/, "")
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
@@ -82,6 +82,7 @@ Item {
       : (quality.indexOf("160") === 0 ? 160 : 320)
   }
   readonly property string audioQuality: bitrateKbps + " kbps"
+  readonly property string audioDevice: String(settings.audioDevice || "")
   property var searchHistory: []
   property var sessionState: ({})
   property bool sessionFileReady: false
@@ -497,7 +498,7 @@ Item {
     var keys = ["deviceName", "idleShutdownMinutes", "showMiniPlayer",
       "showVinylRecord", "shortcutPlayer", "shortcutHints", "showLyrics", "showArtwork", "showTrackTitle", "showArtistName",
       "showPausedTrack", "scrollBarText", "scrollSpeed", "maxBarTextWidth",
-      "fixedBarWidth", "audioQuality", "clientId"]
+      "fixedBarWidth", "audioQuality", "audioDevice", "clientId"]
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i]
       if (source[key] !== undefined) next[key] = source[key]
@@ -526,6 +527,7 @@ Item {
     var quality = String(next.audioQuality || "320 kbps")
     next.audioQuality = quality.indexOf("96") === 0 ? "96 kbps"
       : (quality.indexOf("160") === 0 ? "160 kbps" : "320 kbps")
+    next.audioDevice = Api.normalizedAudioDevice(next.audioDevice)
     // A personal Spotify client ID opts out of the shared rate-limit bucket.
     // Anything that is not a 32-hex ID (including empty) means "keep shipped".
     var customClientId = String(next.clientId || "").trim()
@@ -554,6 +556,10 @@ Item {
   }
 
   function applySettings(values) {
+    // A bar widget pushes its settings before the host hands it the layout
+    // entry. On a second monitor that empty push lands after the real one,
+    // and applying it would reset every stored setting to its default.
+    if (!Api.hasSettingValues(values)) return
     var previousDeviceName = deviceName
     var next = normalizedSettings(values)
     if (JSON.stringify(next) !== JSON.stringify(settings)) settings = next
@@ -4165,6 +4171,7 @@ Item {
     pluginDir: root.pluginDir
     deviceName: root.deviceName
     bitrateKbps: root.bitrateKbps
+    audioDevice: root.audioDevice
     mprisPresent: root.hasLocalPlayer
   }
 

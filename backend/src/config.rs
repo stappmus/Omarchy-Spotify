@@ -182,4 +182,37 @@ mod tests {
         fs::remove_file(path).unwrap();
         fs::remove_dir(dir).unwrap();
     }
+
+    #[test]
+    fn reads_the_selected_output_sink() {
+        let dir = std::env::temp_dir().join(format!(
+            "omarchy-spotify-device-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("spotifyd.conf");
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            "[global]\ndevice_name=\"Test Device\"\nbackend=\"pulseaudio\"\ndevice=\"alsa_output.usb-Mini__Line2__sink\""
+        )
+        .unwrap();
+
+        let config = BackendConfig::load(&path).unwrap();
+        assert_eq!(
+            config.audio_device.as_deref(),
+            Some("alsa_output.usb-Mini__Line2__sink")
+        );
+
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            "[global]\ndevice_name=\"Test Device\"\nbackend=\"pulseaudio\"\ndevice=\"   \""
+        )
+        .unwrap();
+        assert_eq!(BackendConfig::load(&path).unwrap().audio_device, None);
+
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
+    }
 }

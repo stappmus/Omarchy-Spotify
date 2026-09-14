@@ -84,6 +84,7 @@ Item {
   // Disclosure state for the width slider; deliberately not persisted.
   property bool barTextWidthExpanded: false
   property string draftAudioQuality: "320 kbps"
+  property string draftAudioDevice: ""
   property var contextItem: null
   property var contextSourceItems: []
   property string contextSourceUri: ""
@@ -212,6 +213,7 @@ Item {
     draftMaxBarTextWidth = service.maxBarTextWidth
     draftFixedBarWidth = service.fixedBarWidth
     draftAudioQuality = service.audioQuality
+    draftAudioDevice = service.audioDevice
   }
 
   function saveSettings(showStatus) {
@@ -233,7 +235,8 @@ Item {
       scrollSpeed: Api.normalizedScrollSpeed(draftScrollSpeed),
       maxBarTextWidth: Api.normalizedMaxBarTextWidth(draftMaxBarTextWidth),
       fixedBarWidth: draftFixedBarWidth ? "On" : "Off",
-      audioQuality: draftAudioQuality
+      audioQuality: draftAudioQuality,
+      audioDevice: draftAudioDevice
     }
     service.persistSettings(values)
     syncDraftSettings()
@@ -256,6 +259,20 @@ Item {
       : (draftShortcutPlayer === "Full player"
         ? "Mini player" : "Omarchy Music app")
     persistDraftSettings()
+  }
+
+  function audioDeviceLabel() {
+    if (!draftAudioDevice) return "System default"
+    var sinks = root.service ? root.service.daemon.audioSinks : []
+    for (var i = 0; i < sinks.length; i++)
+      if (sinks[i].name === draftAudioDevice) return sinks[i].description
+    return draftAudioDevice
+  }
+
+  function selectAudioDevice(name) {
+    draftAudioDevice = Api.normalizedAudioDevice(name)
+    persistDraftSettings()
+    audioDevicePicker.close()
   }
 
   function audioQualityLabel() {
@@ -2731,6 +2748,99 @@ Item {
         }
       }
         }
+      }
+    }
+  }
+
+  Popup {
+    id: audioDevicePicker
+    parent: window.contentItem
+    x: Math.max(Style.space(8), (window.width - width) / 2)
+    y: Math.max(Style.space(8), (window.height - height) / 2)
+    width: Math.min(Style.space(410), window.width - Style.space(32))
+    height: Math.min(Style.space(520), audioDeviceContent.implicitHeight + padding * 2)
+    padding: Style.space(8)
+    modal: true
+    focus: true
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+    background: BorderSurface {
+      color: root.popupBackground
+      radius: Style.cornerRadius
+      borderSpec: root.popupBorderSpec
+    }
+
+    contentItem: Column {
+      id: audioDeviceContent
+      spacing: Style.space(7)
+
+      Text {
+        width: parent.width
+        text: "Local playback output"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.subtitle
+        font.bold: true
+        elide: Text.ElideRight
+      }
+
+      Text {
+        width: parent.width
+        text: "Send this computer's playback to one output instead of following the system default. Takes effect the next time local playback starts."
+        color: root.muted
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
+      }
+
+      PanelSeparator { width: parent.width; foreground: root.foreground }
+
+      Button {
+        width: parent.width
+        text: "System default"
+        iconText: root.draftAudioDevice ? "󰄰" : "󰄯"
+        foreground: root.foreground
+        leftAlign: true
+        onClicked: root.selectAudioDevice("")
+      }
+
+      ListView {
+        id: audioDeviceList
+        width: parent.width
+        height: Math.min(Style.space(300), Math.max(Style.space(40), contentHeight))
+        model: root.service ? root.service.daemon.audioSinks : []
+        clip: true
+        spacing: Style.space(2)
+        keyNavigationEnabled: true
+        highlightFollowsCurrentItem: true
+        activeFocusOnTab: true
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        Keys.onReturnPressed: if (currentItem) currentItem.clicked()
+        Keys.onEnterPressed: if (currentItem) currentItem.clicked()
+
+        FastScrollHandler { parent: audioDeviceList; flickable: audioDeviceList }
+
+        delegate: Button {
+          required property var modelData
+          width: Math.max(80, ListView.view.width
+            - (audioDeviceList.contentHeight > audioDeviceList.height
+              ? root.popupScrollbarGutter : 0))
+          text: modelData.description
+          iconText: root.draftAudioDevice === modelData.name ? "󰄯" : "󰄰"
+          foreground: root.foreground
+          leftAlign: true
+          onClicked: root.selectAudioDevice(modelData.name)
+        }
+      }
+
+      Text {
+        width: parent.width
+        visible: audioDeviceList.count === 0
+        text: "No audio outputs were found on this computer."
+        color: root.muted
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
       }
     }
   }
@@ -6994,6 +7104,17 @@ Item {
                 foreground: root.foreground
                 tooltipText: "Change streaming quality"
                 onClicked: root.cycleAudioQuality()
+              }
+
+              Button {
+                text: "Output · " + root.audioDeviceLabel()
+                iconText: "󰓃"
+                foreground: root.foreground
+                tooltipText: "Choose where local playback sends audio"
+                onClicked: {
+                  if (root.service) root.service.daemon.refreshAudioSinks()
+                  audioDevicePicker.open()
+                }
               }
             }
 

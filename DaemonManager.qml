@@ -17,6 +17,8 @@ Item {
   property string pluginDir: ""
   property string deviceName: "Omarchy Spotify"
   property int bitrateKbps: 320
+  property string audioDevice: ""
+  property var audioSinks: []
   property string unitName: "omarchy-spotify.service"
   property bool authenticationCancelled: false
   property bool mprisPresent: false
@@ -77,6 +79,7 @@ Item {
       unitCheck.running = true
     }
     checkCredentials()
+    refreshAudioSinks()
     requestConfiguration()
   }
 
@@ -98,6 +101,12 @@ Item {
     setupBusy = true
     setupCommand.command = [pluginDir + "/scripts/setup-playback.sh"]
     setupCommand.running = true
+  }
+
+  function refreshAudioSinks() {
+    if (!pluginDir || sinkList.running) return
+    sinkList.command = ["/usr/bin/bash", pluginDir + "/scripts/list-audio-sinks.sh"]
+    sinkList.running = true
   }
 
   function requestConfiguration() {
@@ -155,9 +164,10 @@ Item {
       return
     }
     configurationPending = false
-    // The blank third line explicitly clears any legacy per-app sink choice.
-    // Omarchy's Audio panel remains the sole owner of desktop audio routing.
-    configurationInput = String(deviceName) + "\n" + String(bitrateKbps) + "\n"
+    // The third line names the PulseAudio sink librespot opens. Blank leaves
+    // the key out, so playback follows Omarchy's system default output.
+    configurationInput = String(deviceName) + "\n" + String(bitrateKbps)
+      + "\n" + String(audioDevice) + "\n"
     configurationBusy = true
     configWriter.command = [pluginDir + "/scripts/configure-spotifyd.sh"]
     configWriter.running = true
@@ -233,6 +243,7 @@ Item {
 
   onDeviceNameChanged: requestConfiguration()
   onBitrateKbpsChanged: requestConfiguration()
+  onAudioDeviceChanged: requestConfiguration()
   onPluginDirChanged: {
     if (!pluginDir) return
     checkRequirements()
@@ -366,6 +377,27 @@ Item {
         root.terminalFailure = true
         root.lastError = messages[code]
       }
+    }
+  }
+
+  Process {
+    id: sinkList
+    stdout: StdioCollector { id: sinkListOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.audioSinks = []
+        return
+      }
+      var rows = []
+      var lines = String(sinkListOutput.text || "").split("\n")
+      for (var i = 0; i < lines.length; i++) {
+        var parts = lines[i].split("\t")
+        var name = Api.normalizedAudioDevice(parts[0])
+        if (!name) continue
+        rows.push({ name: name, description: String(parts[1] || "").trim() || name })
+      }
+      root.audioSinks = rows
     }
   }
 

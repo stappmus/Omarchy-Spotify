@@ -402,6 +402,20 @@ function normalizedShortcutHints(value) {
   return String(value || "On") === "Off" ? "Off" : "On"
 }
 
+function hasSettingValues(values) {
+  if (!values || typeof values !== "object") return false
+  for (var key in values) return true
+  return false
+}
+
+function normalizedAudioDevice(value) {
+  var device = String(value === undefined || value === null ? "" : value).trim()
+  if (device.length > 128) return ""
+  if (/["\\]/.test(device)) return ""
+  if (/[^\x20-\x7e]/.test(device)) return ""
+  return device
+}
+
 function shortcutSequenceList(value) {
   if (value === undefined || value === null || value === "") return []
   return Array.isArray(value) ? value : [value]

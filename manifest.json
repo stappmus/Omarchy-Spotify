@@ -5,7 +5,7 @@
   "version": "1.0.4",
   "author": "QuickshellSpotify",
   "license": "MIT",
-  "description": "Spotify in Quickshell with all the features you need\u2014using about 60 MB of memory versus roughly 950 MB for the official client.",
+  "description": "Spotify in Quickshell with all the features you need—using about 60 MB of memory versus roughly 950 MB for the official client.",
   "kinds": [
     "service",
     "bar-widget",
@@ -19,7 +19,7 @@
   },
   "barWidget": {
     "displayName": "Omarchy Spotify",
-    "description": "Spotify in Quickshell with all the features you need\u2014using about 60 MB of memory versus roughly 950 MB for the official client.",
+    "description": "Spotify in Quickshell with all the features you need—using about 60 MB of memory versus roughly 950 MB for the official client.",
     "category": "Media",
     "aliases": [
       "spotify",
@@ -44,6 +44,7 @@
       "maxBarTextWidth": "240",
       "fixedBarWidth": "Off",
       "audioQuality": "320 kbps",
+      "audioDevice": "",
       "showArtwork": "On",
       "clientId": ""
     },
@@ -200,6 +201,13 @@
         ],
         "defaultValue": "320 kbps",
         "description": "Takes effect the next time playback starts."
+      },
+      {
+        "key": "audioDevice",
+        "type": "string",
+        "label": "Local playback output",
+        "defaultValue": "",
+        "description": "PulseAudio sink that local playback opens. Empty follows the system default. Choose it from the player's Settings; it takes effect the next time playback starts."
       },
       {
         "key": "showArtwork",

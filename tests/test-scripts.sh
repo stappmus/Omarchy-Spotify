@@ -165,6 +165,62 @@ invalid_status=$?
 set -e
 [[ $invalid_status -eq 3 ]]
 
+# A third input line selects the PulseAudio sink librespot opens. An empty
+# line restores the system default by dropping the key entirely.
+printf '%s\n%s\n%s\n' "Desk speakers" 320 "alsa_output.usb-Mini__Line2__sink" |
+  XDG_CONFIG_HOME="$test_root/config" "$source_root/scripts/configure-spotifyd.sh"
+grep -qx 'device = "alsa_output.usb-Mini__Line2__sink"' "$test_root/config/omarchy-spotify/spotifyd.conf"
+grep -qx 'device_name = "Desk speakers"' "$test_root/config/omarchy-spotify/spotifyd.conf"
+[[ $(grep -c '^device[[:space:]]*=' "$test_root/config/omarchy-spotify/spotifyd.conf") -eq 1 ]]
+
+printf '%s\n%s\n%s\n' "Desk speakers" 320 "alsa_output.usb-Mini__Line3__sink" |
+  XDG_CONFIG_HOME="$test_root/config" "$source_root/scripts/configure-spotifyd.sh"
+grep -qx 'device = "alsa_output.usb-Mini__Line3__sink"' "$test_root/config/omarchy-spotify/spotifyd.conf"
+[[ $(grep -c '^device[[:space:]]*=' "$test_root/config/omarchy-spotify/spotifyd.conf") -eq 1 ]]
+
+printf '%s\n%s\n\n' "Desk speakers" 320 |
+  XDG_CONFIG_HOME="$test_root/config" "$source_root/scripts/configure-spotifyd.sh"
+! grep -q '^device[[:space:]]*=' "$test_root/config/omarchy-spotify/spotifyd.conf"
+
+set +e
+printf '%s\n%s\n%s\n' "Desk speakers" 320 'invalid"sink' |
+  XDG_CONFIG_HOME="$test_root/config" "$source_root/scripts/configure-spotifyd.sh"
+invalid_device_status=$?
+set -e
+[[ $invalid_device_status -eq 3 ]]
+! grep -q 'invalid' "$test_root/config/omarchy-spotify/spotifyd.conf"
+
+# The sink list feeds the Settings picker: one tab-separated name and
+# description per sink, and a non-zero exit when PulseAudio is unreachable.
+sink_mock_bin="$test_root/sink-mock-bin"
+mkdir -p "$sink_mock_bin"
+cat >"$sink_mock_bin/pactl" <<'MOCK'
+#!/usr/bin/env bash
+[[ $* == "-f json list sinks" ]] || exit 64
+cat <<'JSON'
+[
+  {"index": 60, "name": "alsa_output.usb-Mini__Line2__sink", "description": "GoXLR Mini Line 2"},
+  {"index": 63, "name": "alsa_output.pci-0000_00_1f.3.analog-stereo", "description": "Built-in Audio"}
+]
+JSON
+MOCK
+chmod +x "$sink_mock_bin/pactl"
+sink_output=$(PATH="$sink_mock_bin:$PATH" "$source_root/scripts/list-audio-sinks.sh")
+[[ $sink_output == "alsa_output.usb-Mini__Line2__sink	GoXLR Mini Line 2
+alsa_output.pci-0000_00_1f.3.analog-stereo	Built-in Audio" ]]
+
+cat >"$sink_mock_bin/pactl" <<'MOCK'
+#!/usr/bin/env bash
+echo "Connection failure: Connection refused" >&2
+exit 1
+MOCK
+chmod +x "$sink_mock_bin/pactl"
+set +e
+PATH="$sink_mock_bin:$PATH" "$source_root/scripts/list-audio-sinks.sh" >/dev/null 2>&1
+sink_failure_status=$?
+set -e
+[[ $sink_failure_status -ne 0 ]]
+
 # Exercise setup and removal entirely inside the temporary tree. The mock
 # spotifyd/systemctl binaries prevent package, service, keyring, or user-config
 # changes while still covering the scripts' real file permissions and paths.
