@@ -22,9 +22,15 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
+  readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME")
+    || (homeDirectory ? homeDirectory + "/.config" : ".config")
+  // Third-party service manifests are intentionally sanitized by Omarchy and
+  // do not include __sourceDir. Installed plugins live under this standard
+  // user config location, so retain a usable path for their helper scripts.
+  readonly property string pluginDir: manifest && manifest.__sourceDir
+    ? String(manifest.__sourceDir)
+    : configHome + "/omarchy/plugins/" + pluginId
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
     if (explicit) return explicit
