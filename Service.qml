@@ -22,8 +22,11 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  // Third-party manifests are intentionally published without __sourceDir.
+  // Resolve paths from this loaded entry point instead.
+  readonly property string pluginDir: decodeURIComponent(
+    String(Qt.resolvedUrl("Service.qml"))
+      .replace(/^file:\/\//, "")).replace(/\/Service\.qml$/, "")
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
