@@ -2,6 +2,9 @@
 
 ## 1.0.4 (unreleased)
 
+- Recover local playback and controls when a Bluetooth multipoint interruption
+  leaves BlueZ's A2DP transport idle. Preserve the selected codec and Spotify
+  session while resetting only the affected headset profile when necessary.
 - Start `Ctrl+F` and `/` searches across Spotify; press again to search the
   current area.
 - Cancel obsolete search pages, reuse pending searches and cached categories,

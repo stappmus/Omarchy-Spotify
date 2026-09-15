@@ -1,8 +1,8 @@
 [Unit]
 Description=Omarchy Spotify plugin playback backend
 Documentation=https://github.com/stappmus/QuickshellSpotify
-After=graphical-session.target sound.target
-Wants=sound.target
+After=graphical-session.target sound.target omarchy-spotify-bluetooth-recovery.service
+Wants=sound.target omarchy-spotify-bluetooth-recovery.service
 Conflicts=omarchy-spotifyd.service
 
 StartLimitIntervalSec=300

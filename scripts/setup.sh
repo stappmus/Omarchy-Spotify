@@ -55,7 +55,7 @@ if (( install_spotifyd )) && ! command -v spotifyd >/dev/null 2>&1; then
   sudo pacman -S --needed spotifyd
 fi
 
-for command_name in secret-tool openssl socat xdg-open systemctl awk cmp install python3 avahi-browse sha256sum; do
+for command_name in secret-tool openssl socat xdg-open systemctl awk cmp install python3 avahi-browse sha256sum pactl busctl journalctl; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "setup.sh: required Omarchy base command is missing: $command_name" >&2
     exit 1
@@ -73,14 +73,17 @@ config_file="$config_dir/spotifyd.conf"
 unit_dir="$config_root/systemd/user"
 backend_unit_file="$unit_dir/omarchy-spotify.service"
 fallback_unit_file="$unit_dir/omarchy-spotifyd.service"
+recovery_unit_file="$unit_dir/omarchy-spotify-bluetooth-recovery.service"
 
 backend_binary=${OMARCHY_SPOTIFY_RUNTIME_DIR:-"$HOME/.local/lib/omarchy-spotify"}/omarchy-spotify-backend
 runtime_dir=$(dirname -- "$backend_binary")
+recovery_script="$runtime_dir/bluetooth-audio-recovery.py"
 backend_source_id_file="$runtime_dir/backend-source.sha256"
 backend_binary_hash_file="$runtime_dir/backend-binary.sha256"
 backend_ready=0
 backend_changed=0
 unit_changed=0
+recovery_changed=0
 
 backend_install_is_current() {
   local current_source_id expected_source_id expected_binary_hash actual_binary_hash
@@ -120,6 +123,7 @@ fi
 
 install -d -m 700 -- "$config_dir"
 install -d -m 700 -- "$unit_dir"
+install -d -m 700 -- "$runtime_dir"
 
 if [[ -f $config_file && $force_config -eq 0 ]]; then
   echo "Keeping existing configuration: $config_file"
@@ -143,10 +147,27 @@ fi
 if command -v spotifyd >/dev/null 2>&1 || [[ -f $fallback_unit_file ]]; then
   install -m 644 -- "$source_root/systemd/omarchy-spotifyd.service" "$fallback_unit_file"
 fi
+if [[ ! -f $recovery_script ]] \
+    || ! cmp -s -- "$source_root/scripts/bluetooth-audio-recovery.py" "$recovery_script" \
+    || [[ ! -f $recovery_unit_file ]] \
+    || ! cmp -s -- "$source_root/systemd/omarchy-spotify-bluetooth-recovery.service" \
+      "$recovery_unit_file"; then
+  recovery_changed=1
+fi
+install -m 755 -- "$source_root/scripts/bluetooth-audio-recovery.py" "$recovery_script"
+install -m 644 -- "$source_root/systemd/omarchy-spotify-bluetooth-recovery.service" \
+  "$recovery_unit_file"
 systemctl --user daemon-reload
 
+backend_restarted=0
 if (( backend_ready && backend_was_active && (backend_changed || unit_changed) )); then
   systemctl --user restart omarchy-spotify.service
+  backend_restarted=1
+fi
+if (( recovery_changed && ! backend_restarted )) \
+    && { systemctl --user is-active --quiet omarchy-spotify.service 2>/dev/null \
+      || systemctl --user is-active --quiet omarchy-spotifyd.service 2>/dev/null; }; then
+  systemctl --user restart omarchy-spotify-bluetooth-recovery.service
 fi
 
 for unit_name in omarchy-spotify.service omarchy-spotifyd.service; do
@@ -163,5 +184,6 @@ fi
 if [[ -f $fallback_unit_file ]]; then
   echo "Kept spotifyd fallback unit: $fallback_unit_file"
 fi
+echo "Installed Bluetooth recovery unit: $recovery_unit_file"
 echo "Installed private config: $config_file"
 echo "Playback remains stopped and will be started on demand by the plugin."
