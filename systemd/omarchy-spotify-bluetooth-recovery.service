@@ -1,0 +1,26 @@
+[Unit]
+Description=Recover Omarchy Spotify after Bluetooth multipoint interruptions
+Documentation=https://github.com/stappmus/QuickshellSpotify
+After=pipewire-pulse.service wireplumber.service
+Wants=pipewire-pulse.service wireplumber.service
+StopWhenUnneeded=yes
+
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/omarchy-spotify/bluetooth-audio-recovery.py
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+KillMode=mixed
+RuntimeDirectory=omarchy-spotify-bluetooth-recovery
+RuntimeDirectoryMode=0700
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX

@@ -224,13 +224,19 @@ OMARCHY_SPOTIFY_SKIP_BACKEND_BUILD=1 \
 
 runtime_spotify_config="$runtime_config/omarchy-spotify/spotifyd.conf"
 runtime_unit="$runtime_config/systemd/user/omarchy-spotifyd.service"
-[[ -f $runtime_spotify_config && -f $runtime_unit ]]
+runtime_recovery_unit="$runtime_config/systemd/user/omarchy-spotify-bluetooth-recovery.service"
+runtime_recovery_script="$runtime_backend/bluetooth-audio-recovery.py"
+[[ -f $runtime_spotify_config && -f $runtime_unit \
+  && -f $runtime_recovery_unit && -x $runtime_recovery_script ]]
 [[ $(stat -c '%a' "$runtime_spotify_config") == 600 ]]
 [[ $(stat -c '%a' "$runtime_unit") == 644 ]]
+[[ $(stat -c '%a' "$runtime_recovery_unit") == 644 ]]
+[[ $(stat -c '%a' "$runtime_recovery_script") == 755 ]]
 grep -qx 'device_name = "Test speakers"' "$runtime_spotify_config"
 grep -qx 'no_audio_cache = false' "$runtime_spotify_config"
 grep -qx 'max_cache_size = 1000000000' "$runtime_spotify_config"
 grep -qx 'Environment=PULSE_LATENCY_MSEC=30' "$runtime_unit"
+grep -q 'omarchy-spotify-bluetooth-recovery.service' "$runtime_unit"
 
 PATH="$mock_bin:$PATH" \
 XDG_CONFIG_HOME="$runtime_config" \
@@ -239,7 +245,8 @@ XDG_STATE_HOME="$runtime_state" \
 OMARCHY_SPOTIFY_RUNTIME_DIR="$runtime_backend" \
   "$source_root/scripts/remove-runtime.sh" >/dev/null
 
-[[ ! -e $runtime_unit && ! -e $runtime_config/omarchy-spotify ]]
+[[ ! -e $runtime_unit && ! -e $runtime_recovery_unit \
+  && ! -e $runtime_recovery_script && ! -e $runtime_config/omarchy-spotify ]]
 find "$runtime_config" -maxdepth 1 -type d -name 'omarchy-spotify.bak.*' \
   | grep -q .
 
@@ -252,7 +259,8 @@ XDG_STATE_HOME="$runtime_state" \
 OMARCHY_SPOTIFY_RUNTIME_DIR="$runtime_backend" \
 OMARCHY_SPOTIFY_SKIP_BACKEND_BUILD=1 \
   "$source_root/scripts/setup-playback.sh" >/dev/null
-[[ -f $runtime_spotify_config && -f $runtime_unit ]]
+[[ -f $runtime_spotify_config && -f $runtime_unit \
+  && -f $runtime_recovery_unit && -x $runtime_recovery_script ]]
 grep -qx 'device_name = "Omarchy Spotify"' "$runtime_spotify_config"
 
 # A clean source install records both the reviewed backend-source fingerprint
@@ -272,6 +280,7 @@ OMARCHY_SPOTIFY_BUILD_FROM_SOURCE=1 \
   "$source_root/scripts/setup.sh" >/dev/null
 runtime_backend_unit="$runtime_config/systemd/user/omarchy-spotify.service"
 [[ -x $runtime_backend/omarchy-spotify-backend && -f $runtime_backend_unit ]]
+grep -q 'omarchy-spotify-bluetooth-recovery.service' "$runtime_backend_unit"
 [[ $(<"$runtime_backend/backend-source.sha256") == "$backend_source_id" ]]
 installed_hash=$(sha256sum -- "$runtime_backend/omarchy-spotify-backend")
 [[ $(<"$runtime_backend/backend-binary.sha256") == "${installed_hash%% *}" ]]
@@ -323,6 +332,23 @@ TEST_SYSTEMCTL_LOG="$systemctl_log" \
   "$source_root/scripts/setup.sh" >/dev/null
 ! grep -q -- '--user restart omarchy-spotify.service' "$systemctl_log"
 
+# Updating only the recovery companion refreshes it immediately when either
+# playback engine is already active.
+printf '%s\n' 'stale recovery helper' >"$runtime_recovery_script"
+: >"$systemctl_log"
+PATH="$mock_bin:$PATH" \
+XDG_CONFIG_HOME="$runtime_config" \
+XDG_CACHE_HOME="$runtime_cache" \
+XDG_STATE_HOME="$runtime_state" \
+OMARCHY_SPOTIFY_RUNTIME_DIR="$runtime_backend" \
+TEST_SERVICE_ACTIVE=1 \
+TEST_SYSTEMCTL_LOG="$systemctl_log" \
+  "$source_root/scripts/setup.sh" >/dev/null
+cmp -s -- "$source_root/scripts/bluetooth-audio-recovery.py" \
+  "$runtime_recovery_script"
+grep -qx -- '--user restart omarchy-spotify-bluetooth-recovery.service' \
+  "$systemctl_log"
+
 mkdir -p "$runtime_config/omarchy-spotify" \
   "$runtime_config/omarchy-spotify.bak.20260827000000" \
   "$runtime_cache/spotifyd" "$runtime_cache/omarchy-spotify/target" \
@@ -350,6 +376,8 @@ TEST_SYSTEMCTL_LOG="$systemctl_log" \
 [[ ! -e $runtime_backend ]]
 grep -qx -- '--user disable --now omarchy-spotify.service' "$systemctl_log"
 grep -qx -- '--user disable --now omarchy-spotifyd.service' "$systemctl_log"
+grep -qx -- '--user disable --now omarchy-spotify-bluetooth-recovery.service' \
+  "$systemctl_log"
 grep -q 'clear service quickshell-spotify kind refresh-token' "$secret_log"
 
 set +e
@@ -467,6 +495,7 @@ PATH="$mock_bin:$PATH" \
 grep -qx 'umask 077' "$source_root/scripts/spotifyd-auth.sh"
 [[ -x $source_root/scripts/setup-playback.sh ]]
 [[ -x $source_root/scripts/backend-source-id.sh ]]
+[[ -x $source_root/scripts/bluetooth-audio-recovery.py ]]
 [[ -x $source_root/scripts/uninstall.sh ]]
 grep -q 'remove-runtime.sh.*--purge' "$source_root/scripts/uninstall.sh"
 grep -q 'omarchy plugin remove quickshell.spotify --yes' "$source_root/scripts/uninstall.sh"
@@ -535,5 +564,11 @@ grep -qx 'Environment=PULSE_LATENCY_MSEC=30' \
   "$source_root/systemd/omarchy-spotify.service"
 grep -qx 'Environment=TOKIO_WORKER_THREADS=2' \
   "$source_root/systemd/omarchy-spotify.service"
+grep -qx 'Wants=sound.target omarchy-spotify-bluetooth-recovery.service' \
+  "$source_root/systemd/omarchy-spotify.service"
+grep -qx 'Wants=sound.target omarchy-spotify-bluetooth-recovery.service' \
+  "$source_root/systemd/omarchy-spotifyd.service"
+grep -qx 'StopWhenUnneeded=yes' \
+  "$source_root/systemd/omarchy-spotify-bluetooth-recovery.service"
 
 echo "Script tests passed."

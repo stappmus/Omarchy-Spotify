@@ -8,7 +8,7 @@ details out of the user-facing README.
 Omarchy Spotify runs as a plugin inside Omarchy's existing `omarchy-shell`
 Quickshell process. It provides a shared service, a bar widget, and a lazy-loaded
 panel. There is no embedded website, browser engine, second shell process, or
-resident helper process.
+always-running helper process.
 
 Local playback state and ordinary controls use MPRIS. Starting playback on this
 computer uses the backend's private Unix socket (`load`, `add_to_queue`) when
@@ -28,6 +28,17 @@ computer, or when you choose it in Devices. Once every player surface closes,
 it stops after the configured idle period; 0 keeps it available indefinitely.
 The distro `spotifyd` unit is retained as a non-running fallback; the two units
 conflict so they cannot claim the same Connect identity together.
+
+Either playback unit pulls in an on-demand Bluetooth recovery companion and
+stops it again with the player. The companion watches WirePlumber for failed
+Bluetooth audio transports. Affected streams are briefly parked on a null sink
+so a blocked PulseAudio write can return and MPRIS Pause can be confirmed. It
+then checks BlueZ's `MediaTransport1.State`, because PipeWire can keep reporting
+`RUNNING` after a multipoint headset has stopped accepting audio. If the real
+transport remains idle, only that headset's active A2DP profile is toggled off
+and back on; the selected codec is preserved. Streams still owned by the
+recovery sink are moved back afterward, while unrelated outputs and user routing
+changes are left alone. Spotify itself is never restarted or disconnected.
 
 The unit sets `PULSE_LATENCY_MSEC=30` only for local playback and caps
 librespot's private player runtime at two Tokio workers. The backend's own
@@ -65,7 +76,7 @@ after every command.
 - the exact-commit attested plugin backend, a local source build, or `spotifyd`
   0.4.2 or newer as fallback
 - Omarchy base tools: `secret-tool`, `openssl`, `socat`, `xdg-open`, `wl-copy`,
-  `avahi-browse`, `systemctl`, and Python 3
+  `avahi-browse`, `systemctl`, `pactl`, `busctl`, `journalctl`, and Python 3
 
 The verified-release fast path also uses `curl` and GitHub CLI when available;
 neither is trusted as a bypass when provenance verification cannot complete.

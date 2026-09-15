@@ -144,6 +144,12 @@ still match that tagged source. If verification is unavailable, setup builds
 the locked Rust source locally or offers Omarchy's packaged `spotifyd` fallback
 instead of executing an unverified download.
 
+Bluetooth multipoint headsets are monitored while local playback is running.
+If another paired computer leaves BlueZ's A2DP transport stalled, the plugin
+parks the affected audio streams, restores Spotify controls, and rebuilds only
+that headset's selected A2DP profile when needed. The codec selection and
+Spotify session stay intact.
+
 ## Seeing "Spotify is busy." or slow searches?
 
 The plugin's Spotify Web API client ID is shared by every install worldwide,
@@ -172,7 +178,7 @@ Run the bundled uninstaller from outside the plugin directory:
 cd "$HOME" && "$HOME/.config/omarchy/plugins/quickshell.spotify/scripts/uninstall.sh"
 ```
 
-It disables and removes the plugin, stops and removes both user services,
+It disables and removes the plugin, stops and removes its user services,
 restarts the shell, and deletes all plugin-owned configuration, cached audio,
 backend build files, installed binaries, playback state, runtime sockets, old
 configuration backups, and matching GNOME Keyring entries.

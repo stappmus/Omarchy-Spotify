@@ -17,6 +17,7 @@ state_root=${XDG_STATE_HOME:-"$HOME/.local/state"}
 session_runtime_root=${XDG_RUNTIME_DIR:-/tmp}
 backend_unit_file="$config_root/systemd/user/omarchy-spotify.service"
 fallback_unit_file="$config_root/systemd/user/omarchy-spotifyd.service"
+recovery_unit_file="$config_root/systemd/user/omarchy-spotify-bluetooth-recovery.service"
 config_dir="$config_root/omarchy-spotify"
 cache_dir="$cache_root/spotifyd"
 build_cache_dir="$cache_root/omarchy-spotify"
@@ -27,6 +28,7 @@ backend_binary="$runtime_dir/omarchy-spotify-backend"
 backend_source_id_file="$runtime_dir/backend-source.sha256"
 backend_binary_hash_file="$runtime_dir/backend-binary.sha256"
 backend_origin_file="$runtime_dir/backend-origin"
+recovery_script="$runtime_dir/bluetooth-audio-recovery.py"
 
 require_safe_path() {
   local label=$1 value=$2
@@ -47,14 +49,16 @@ if [[ ${runtime_dir##*/} == omarchy-spotify ]]; then
   runtime_dir_is_dedicated=1
 fi
 
-for unit_name in omarchy-spotify.service omarchy-spotifyd.service; do
+for unit_name in omarchy-spotify-bluetooth-recovery.service \
+    omarchy-spotify.service omarchy-spotifyd.service; do
   systemctl --user disable --now "$unit_name" >/dev/null 2>&1 || true
 done
-rm -f -- "$backend_unit_file" "$fallback_unit_file" "$backend_binary" \
-  "$backend_source_id_file" "$backend_binary_hash_file" "$backend_origin_file"
+rm -f -- "$backend_unit_file" "$fallback_unit_file" "$recovery_unit_file" \
+  "$backend_binary" "$backend_source_id_file" "$backend_binary_hash_file" \
+  "$backend_origin_file" "$recovery_script"
 systemctl --user daemon-reload
-systemctl --user reset-failed omarchy-spotify.service omarchy-spotifyd.service \
-  >/dev/null 2>&1 || true
+systemctl --user reset-failed omarchy-spotify-bluetooth-recovery.service \
+  omarchy-spotify.service omarchy-spotifyd.service >/dev/null 2>&1 || true
 
 if [[ -d $config_dir ]]; then
   if (( purge )); then

@@ -1,8 +1,8 @@
 [Unit]
 Description=Lightweight Spotify playback engine for Omarchy Spotify
 Documentation=https://github.com/Spotifyd/spotifyd
-After=graphical-session.target sound.target
-Wants=sound.target
+After=graphical-session.target sound.target omarchy-spotify-bluetooth-recovery.service
+Wants=sound.target omarchy-spotify-bluetooth-recovery.service
 Conflicts=omarchy-spotify.service
 
 StartLimitIntervalSec=300
