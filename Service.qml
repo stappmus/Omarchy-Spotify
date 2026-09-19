@@ -22,9 +22,16 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  // Omarchy's host strips manifest.__sourceDir for third-party (non-first-party)
+  // plugins before handing the manifest to service/panel/bar-widget instances
+  // (see publicPluginManifest() in the shell's own shell.qml), so pluginDir is
+  // otherwise always empty and every DaemonManager check silently no-ops
+  // forever. Fall back to the plugin's well-known install directory under
+  // ~/.config/omarchy/plugins/<id> so setup scripts can still be located.
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
+  readonly property string pluginDir: (manifest && manifest.__sourceDir)
+    ? String(manifest.__sourceDir)
+    : (homeDirectory ? homeDirectory + "/.config/omarchy/plugins/" + pluginId : "")
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
     if (explicit) return explicit
