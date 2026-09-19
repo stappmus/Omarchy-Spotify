@@ -22,8 +22,17 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  // Omarchy strips __sourceDir from third-party manifests (see
+  // publicPluginManifest in the host shell). Fall back to the directory this
+  // file was loaded from, same pattern as b.everything/reprieve. Without this
+  // every script-backed check silently never runs and the UI sticks on
+  // "Checking local playback".
+  readonly property string pluginDir: {
+    if (manifest && manifest.__sourceDir) return String(manifest.__sourceDir)
+    var url = String(Qt.resolvedUrl("."))
+    if (url.indexOf("file://") === 0) url = url.slice(7)
+    return url.replace(/\/+$/, "")
+  }
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
