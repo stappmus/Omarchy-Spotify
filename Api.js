@@ -1000,6 +1000,27 @@ function lyricsSong(trackId, title, artist, album, duration, coverUrl,
   }
 }
 
+function isWidgetInBarConfig(barConfig, widgetId) {
+  if (!barConfig || typeof barConfig !== "object") return false
+  var layout = barConfig.layout
+  if (!layout || typeof layout !== "object") return false
+  var target = String(widgetId || "").trim()
+  if (!target) return false
+  var sections = ["left", "center", "right"]
+  for (var s = 0; s < sections.length; s++) {
+    var entries = layout[sections[s]]
+    if (!Array.isArray(entries)) continue
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      var id = ""
+      if (typeof entry === "string") id = entry
+      else if (entry && typeof entry === "object") id = String(entry.id || "")
+      if (id === target) return true
+    }
+  }
+  return false
+}
+
 function optionalPluginState(installed, enabled) {
   if (installed !== true) return "missing"
   return enabled === true ? "ready" : "disabled"

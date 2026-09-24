@@ -22,8 +22,13 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  readonly property string pluginDir: {
+    if (manifest && manifest.__sourceDir) return String(manifest.__sourceDir)
+    var here = String(Qt.resolvedUrl("."))
+    if (here.indexOf("file://") === 0) here = here.substring(7)
+    try { here = decodeURIComponent(here) } catch (e) {}
+    return here.replace(/\/+$/, "")
+  }
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
@@ -137,18 +142,27 @@ Item {
     && currentTrackId !== ""
   readonly property var currentLyricsSong: Api.lyricsSong(currentTrackId,
     title, artist, album, lengthSeconds, artUrl, positionSeconds)
-  readonly property bool lyricsAvailable: showLyrics && currentLyricsSong !== null
+  readonly property bool lyricsAvailable: showLyrics
   readonly property string lyricsPluginId: "stappmus.lyrics"
   readonly property string lyricsPluginUrl: "https://github.com/stappmus/Omasing.git"
-  readonly property string lyricsPluginAvailability: {
-    var plugins = pluginRegistry && pluginRegistry.installedPlugins
-      ? pluginRegistry.installedPlugins : ({})
-    var installed = !!plugins[lyricsPluginId]
-    var enabled = installed && pluginRegistry
-      && typeof pluginRegistry.inBar === "function"
-      && pluginRegistry.inBar(lyricsPluginId)
-    return Api.optionalPluginState(installed, enabled)
-  }
+  readonly property string lyricsPluginUserManifestPath: homeDirectory
+    ? (homeDirectory + "/.config/omarchy/plugins/" + lyricsPluginId + "/manifest.json") : ""
+  readonly property string lyricsPluginSystemManifestPath: "/usr/share/omarchy/shell/plugins/"
+    + lyricsPluginId + "/manifest.json"
+  property bool lyricsPluginUserInstalled: false
+  property bool lyricsPluginSystemInstalled: false
+  readonly property bool lyricsPluginInBar: Api.isWidgetInBarConfig(
+    shell ? shell.barConfig : null, lyricsPluginId)
+    || (pluginRegistry && typeof pluginRegistry.inBar === "function"
+      && pluginRegistry.inBar(lyricsPluginId))
+  readonly property bool lyricsPluginInstalled: lyricsPluginUserInstalled
+    || lyricsPluginSystemInstalled
+    || lyricsPluginInBar
+    || (pluginRegistry && pluginRegistry.installedPlugins
+      && !!pluginRegistry.installedPlugins[lyricsPluginId])
+  readonly property bool lyricsPluginEnabled: lyricsPluginInstalled && lyricsPluginInBar
+  readonly property string lyricsPluginAvailability: Api.optionalPluginState(
+    lyricsPluginInstalled, lyricsPluginEnabled)
   property bool lyricsPluginBusy: false
   property string lyricsPluginOperation: ""
   property string lyricsPluginError: ""
@@ -649,8 +663,8 @@ Item {
 
   function configuredEntry() {
     var config = shell && shell.shellConfig ? shell.shellConfig : null
-    if (!config) return null
-    var layout = config.bar && config.bar.layout ? config.bar.layout : null
+    var bar = shell && shell.barConfig ? shell.barConfig : (config && config.bar ? config.bar : null)
+    var layout = bar && bar.layout ? bar.layout : null
     var sections = ["left", "center", "right"]
     if (layout) {
       for (var s = 0; s < sections.length; s++) {
@@ -659,7 +673,7 @@ Item {
           if (rows[i] && String(rows[i].id || "") === pluginId) return rows[i]
       }
     }
-    var plugins = Array.isArray(config.plugins) ? config.plugins : []
+    var plugins = config && Array.isArray(config.plugins) ? config.plugins : []
     for (var p = 0; p < plugins.length; p++)
       if (plugins[p] && String(plugins[p].id || "") === pluginId) return plugins[p]
     return null
@@ -728,7 +742,6 @@ Item {
   }
 
   function requestLyrics(surface) {
-    if (!currentLyricsSong) return "unavailable"
     lyricsPluginRequestSurface = String(surface || "")
     pendingLyricsSong = currentLyricsSong
     lyricsPluginError = ""
@@ -871,10 +884,15 @@ Item {
   }
 
   function launchLyricsPlugin() {
-    if (!pendingLyricsSong || lyricsPluginLaunchProcess.running) return
+    if (lyricsPluginLaunchProcess.running) return
     lyricsPluginLaunchAttempts++
-    lyricsPluginLaunchProcess.command = ["/usr/bin/omarchy-shell",
-      lyricsPluginId, "lyrics", JSON.stringify(pendingLyricsSong)]
+    if (pendingLyricsSong) {
+      lyricsPluginLaunchProcess.command = ["/usr/bin/omarchy-shell",
+        lyricsPluginId, "lyrics", JSON.stringify(pendingLyricsSong)]
+    } else {
+      lyricsPluginLaunchProcess.command = ["/usr/bin/omarchy-shell",
+        lyricsPluginId, "open"]
+    }
     lyricsPluginLaunchProcess.running = true
   }
 
@@ -3760,12 +3778,15 @@ Item {
     ensureStateDir.running = true
     settingsSync.start()
     daemonManager.refreshStatus()
+    lyricsPluginUserManifestFile.reload()
+    lyricsPluginSystemManifestFile.reload()
   }
 
   Connections {
     target: root.shell
     ignoreUnknownSignals: true
     function onShellConfigChanged() { root.syncSettings() }
+    function onBarConfigChanged() { root.syncSettings() }
   }
 
   Connections {
@@ -3942,6 +3963,24 @@ Item {
     onSaveFailed: {
       if (!ensureStateDir.running) ensureStateDir.running = true
     }
+  }
+
+  FileView {
+    id: lyricsPluginUserManifestFile
+    path: root.lyricsPluginUserManifestPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: { root.lyricsPluginUserInstalled = text().length > 0 }
+    onLoadFailed: { root.lyricsPluginUserInstalled = false }
+  }
+
+  FileView {
+    id: lyricsPluginSystemManifestFile
+    path: root.lyricsPluginSystemManifestPath
+    watchChanges: false
+    printErrors: false
+    onLoaded: { root.lyricsPluginSystemInstalled = text().length > 0 }
+    onLoadFailed: { root.lyricsPluginSystemInstalled = false }
   }
 
   Process {
