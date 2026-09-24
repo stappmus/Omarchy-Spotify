@@ -431,6 +431,25 @@ TestCase {
     compare(Api.optionalPluginSetupCommand("ready", "stappmus.lyrics",
       "https://github.com/stappmus/Omasing.git"), [])
 
+    compare(Api.isWidgetInBarConfig(null, "stappmus.lyrics"), false)
+    compare(Api.isWidgetInBarConfig({}, "stappmus.lyrics"), false)
+    compare(Api.isWidgetInBarConfig({ layout: {} }, "stappmus.lyrics"), false)
+    compare(Api.isWidgetInBarConfig({
+      layout: {
+        center: [{ id: "omarchy.weather" }, { id: "stappmus.lyrics" }]
+      }
+    }, "stappmus.lyrics"), true)
+    compare(Api.isWidgetInBarConfig({
+      layout: {
+        left: ["stappmus.lyrics"]
+      }
+    }, "stappmus.lyrics"), true)
+    compare(Api.isWidgetInBarConfig({
+      layout: {
+        right: [{ id: "omarchy.tray" }]
+      }
+    }, "stappmus.lyrics"), false)
+
     var song = { id: "spotify:track:one", title: "Song", artist: "Artist" }
     var intent = Api.lyricsInstallIntent(song, "spotify-panel-lyrics", 1000)
     compare(intent.surface, "spotify-panel-lyrics")
