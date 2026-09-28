@@ -2,6 +2,11 @@
 
 ## 1.0.4 (unreleased)
 
+- Find the plugin's own scripts when the host omits the plugin directory.
+  Omarchy 4.0.4 strips `__sourceDir` from third-party manifests, which left
+  saved playback authorization undetected ("Approve playback on this computer
+  in Settings") and the backend unable to start.
+
 - Start `Ctrl+F` and `/` searches across Spotify; press again to search the
   current area.
 - Cancel obsolete search pages, reuse pending searches and cached categories,
