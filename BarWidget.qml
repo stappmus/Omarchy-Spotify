@@ -189,23 +189,41 @@ BarWidget {
       "Omarchy Music app"))
   }
 
+  // Omarchy 4.0.0.alpha hands third-party widgets a PluginBarApi facade that
+  // omits summonBarWidget/hideBarWidget/isBarWidgetOpen. This instance is
+  // already the focused-monitor widget (Service.shortcutSurface picks it), so
+  // fall back to driving its own popup when those host helpers are missing.
+  readonly property bool barPanelApiAvailable: !!bar
+    && typeof bar.isBarWidgetOpen === "function"
+    && typeof bar.hideBarWidget === "function"
+    && typeof bar.summonBarWidget === "function"
+
+  function miniPlayerShortcutOpen() {
+    return barPanelApiAvailable ? bar.isBarWidgetOpen(moduleName) : popupOpen
+  }
+  function openMiniPlayerShortcut() {
+    if (barPanelApiAvailable) return bar.summonBarWidget(moduleName)
+    open()
+    return popupOpen
+  }
+  function closeMiniPlayerShortcut() {
+    if (barPanelApiAvailable) return bar.hideBarWidget(moduleName)
+    close()
+    return true
+  }
+
   function toggleMiniPlayerShortcut() {
-    if (!bar || typeof bar.isBarWidgetOpen !== "function"
-        || typeof bar.hideBarWidget !== "function"
-        || typeof bar.summonBarWidget !== "function") return "unavailable"
-    if (bar.isBarWidgetOpen(moduleName))
-      return bar.hideBarWidget(moduleName) ? "closed" : "unavailable"
+    if (miniPlayerShortcutOpen())
+      return closeMiniPlayerShortcut() ? "closed" : "unavailable"
     pendingShortcutLatch = true
-    var host = bar.shell
+    var host = bar ? bar.shell : null
     if (host && typeof host.isPluginOpen === "function"
         && host.isPluginOpen(moduleName) && typeof host.hide === "function") {
       host.hide(moduleName)
-      Qt.callLater(function() {
-        if (root.bar) root.bar.summonBarWidget(root.moduleName)
-      })
+      Qt.callLater(function() { root.openMiniPlayerShortcut() })
       return "opened"
     }
-    var opened = bar.summonBarWidget(moduleName)
+    var opened = openMiniPlayerShortcut()
     if (!opened) pendingShortcutLatch = false
     return opened ? "opened" : "unavailable"
   }
@@ -219,10 +237,8 @@ BarWidget {
       host.hide(moduleName)
       return "closed"
     }
-    if (bar && typeof bar.isBarWidgetOpen === "function"
-        && bar.isBarWidgetOpen(moduleName)
-        && typeof bar.hideBarWidget === "function") {
-      bar.hideBarWidget(moduleName)
+    if (miniPlayerShortcutOpen()) {
+      closeMiniPlayerShortcut()
       Qt.callLater(function() {
         if (root.bar && root.bar.shell)
           root.bar.shell.summon(root.moduleName,
