@@ -2,6 +2,8 @@
 
 ## 1.0.4 (unreleased)
 
+- Poll playback every 15 seconds instead of 5 while the player is open and
+  another device has playback or the local player is not running.
 - Start `Ctrl+F` and `/` searches across Spotify; press again to search the
   current area.
 - Cancel obsolete search pages, reuse pending searches and cached categories,

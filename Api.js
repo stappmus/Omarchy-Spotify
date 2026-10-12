@@ -386,11 +386,6 @@ function remotePlaybackPollShouldRun(loggedIn, loading, uiVisible, useRemote,
   return useRemote === true && playing === true
 }
 
-function remotePlaybackPollInterval(uiVisible, useRemote, hasLocal) {
-  return uiVisible === true && (useRemote === true || hasLocal !== true)
-    ? 5000 : 15000
-}
-
 function normalizedShortcutPlayer(value) {
   var text = String(value || "")
   if (text === "Full player") return "Full player"

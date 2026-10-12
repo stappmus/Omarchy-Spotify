@@ -2893,6 +2893,7 @@ Item {
         if (ok) {
           root.loadDevices()
           root.loadPlaybackState()
+          playbackFollowUpTimer.restart()
         }
       })
   }
@@ -3140,6 +3141,7 @@ Item {
           root.selectedDeviceId = String(deviceId || root.selectedDeviceId)
           root.loadDevices()
           root.loadQueue()
+          playbackFollowUpTimer.restart()
         }, { priority: "interactive", retryRateLimit: false })
     }
     dispatch(false)
@@ -3351,8 +3353,11 @@ Item {
   }
 
   function remotePlayerAction(method, path, query) {
-    apiAction(method, path, query, null, "",
-      function(ok) { if (ok) root.loadPlaybackState() })
+    apiAction(method, path, query, null, "", function(ok) {
+      if (!ok) return
+      root.loadPlaybackState()
+      playbackFollowUpTimer.restart()
+    })
   }
 
   function seekSeconds(seconds) {
@@ -3368,6 +3373,7 @@ Item {
       controlQuery({ position_ms: Math.round(value * 1000) }),
       null, "", function(ok) {
       if (!ok) root.clearPendingRemoteSeek(remoteSerial)
+      else playbackFollowUpTimer.restart()
       root.loadPlaybackState()
     })
   }
@@ -3869,6 +3875,7 @@ Item {
       root.applySonosControlResult(action, value)
       root.reconcilePendingRemoteControls(root.remotePlayback)
       sonosControlRefreshTimer.restart()
+      playbackFollowUpTimer.restart()
     }
     function onControlFailed(deviceId, reason) {
       if (root.pendingConnectDeviceId === deviceId) {
@@ -4028,8 +4035,7 @@ Item {
 
   Timer {
     id: remotePlaybackTimer
-    interval: Api.remotePlaybackPollInterval(root.uiVisible,
-      root.useRemotePlayback, root.hasLocalPlayer)
+    interval: 15000
     repeat: true
     running: Api.remotePlaybackPollShouldRun(root.auth.loggedIn,
       root.remotePlaybackLoading, root.uiVisible, root.useRemotePlayback,
@@ -4058,6 +4064,14 @@ Item {
         }
       }
     }
+  }
+
+  // Spotify can still report the pre-command state just after a command.
+  Timer {
+    id: playbackFollowUpTimer
+    interval: 2000
+    repeat: false
+    onTriggered: root.loadPlaybackState()
   }
 
   Timer {

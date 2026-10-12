@@ -13,10 +13,9 @@ resident helper process.
 Local playback state and ordinary controls use MPRIS. Starting playback on this
 computer uses the backend's private Unix socket (`load`, `add_to_queue`) when
 that process is running. Active playback on another Spotify Connect device
-comes from the Spotify Web API, refreshed while a UI is visible and at a slower
-rate while that device is playing. Fast `/me/player` polling is reserved for
-remote or unknown targets. Spotify data and other user actions also use the
-Web API.
+comes from the Spotify Web API. `/me/player` is polled every 15 seconds while a
+UI is visible, whatever is playing, and while hidden only if another device is
+playing. Spotify data and other user actions also use the Web API.
 
 Local audio runs in the plugin-owned `omarchy-spotify-backend` Rust process,
 supervised by a static systemd user unit that is never enabled at login. The
