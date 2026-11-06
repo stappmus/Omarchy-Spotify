@@ -651,7 +651,9 @@ Item {
     var config = shell && shell.shellConfig ? shell.shellConfig : null
     if (!config) return null
     var layout = config.bar && config.bar.layout ? config.bar.layout : null
-    var sections = ["left", "center", "right"]
+    // Omarchy 4.5 added centerBegin/centerEnd to the bar layout, so search
+    // every section rather than a fixed list.
+    var sections = layout ? Object.keys(layout) : []
     if (layout) {
       for (var s = 0; s < sections.length; s++) {
         var rows = Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
