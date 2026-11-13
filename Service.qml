@@ -360,6 +360,7 @@ Item {
   property var topTracks: []
   property var topArtists: []
   property bool homeLoaded: false
+  readonly property string homeUnavailableReason: "Account listening history and top rankings are not supported by this version of the player yet."
   property int homeRequestsPending: 0
   readonly property bool homeLoading: homeRequestsPending > 0
 
@@ -469,7 +470,6 @@ Item {
 
   readonly property bool deviceActivationBusy: spotifyConnectManager.activating
     || (!!pendingConnectDeviceId && spotifyConnectManager.controlling)
-    || connectAuthManager.loginBusy || connectAuthManager.sessionBusy
 
   readonly property int cacheLimit: 200
 
@@ -481,9 +481,9 @@ Item {
   function loginProgressText() {
     if (daemonManager.setupBusy) return "Preparing playback on this computer"
     if (daemonManager.credentialsClearBusy) return "Signing out"
-    if (authManager.loginBusy) return "Approve Spotify access in your browser"
+    if (authManager.loginBusy) return authManager.pairingCode
+      ? "Enter " + authManager.pairingCode + " on Spotify" : "Opening Spotify sign-in"
     if (!settingsReady) return "Waiting for Spotify settings"
-    if (!authManager.validClientId) return authManager.identityError()
     if (authManager.sessionBusy || !authManager.sessionChecked)
       return "Checking your saved Spotify session"
     if (!daemonManager.requirementsChecked || !daemonManager.credentialsChecked)
@@ -1403,10 +1403,10 @@ Item {
         && contextHref.indexOf("/playlists/" + expectedPlaylist.id) >= 0)
   }
 
-  // Restore the keyring-backed session only when a Spotify API surface is
-  // actually opened. This avoids a network request when the widget is merely
-  // sitting on the bar and local MPRIS controls are sufficient.
+  // Retry a saved native session when a Spotify surface is opened.
   function activate(view) {
+    if (daemonManager.credentialsClearBusy) return
+    if (!authManager.loggedIn && authManager.sessionChecked) authManager.restoreSession()
     activeView = normalizedView(view)
     authManager.withAccessToken(function(token, error) {
       if (token) {
@@ -2418,6 +2418,11 @@ Item {
   }
 
   function loadHome() {
+    if (spotifyApi.nativeSession) {
+      homeRequestsPending = 0
+      homeLoaded = true
+      return
+    }
     if (homeLoading) return
     var expected = dataSerial
     homeLoaded = false
@@ -2866,14 +2871,14 @@ Item {
     pendingConnectWakeTried = false
     if (Api.spotifyConnectTokenType(device.tokenType) !== "default") {
       statusMessage = "Checking permission for " + device.name
-      connectAuthManager.withAccessToken(function(token, error) {
+      authManager.withStreamingToken(function(token, error) {
         if (root.pendingConnectDeviceId !== device.id) return
         if (token) {
           root.statusMessage = "Connecting to " + device.name
           spotifyConnectManager.activate(device.id, token)
         } else {
-          root.statusMessage = "Approve speaker access in your browser"
-          connectAuthManager.beginLogin()
+          root.pendingConnectDeviceId = ""
+          root.fail(error || "Spotify could not connect this speaker")
         }
       })
     } else {
@@ -3578,10 +3583,6 @@ Item {
   }
 
   function login() {
-    if (!authManager.validClientId) {
-      fail(authManager.identityError())
-      return
-    }
     if (authManager.loginBusy || authManager.sessionBusy
         || daemonManager.setupBusy || daemonManager.authenticationBusy) return
     noteActivity()
@@ -3589,6 +3590,10 @@ Item {
     statusClearTimer.stop()
     statusMessage = ""
     loginFlowActive = true
+    if (!daemonManager.playbackReady || daemonManager.usingFallbackRuntime) {
+      daemonManager.setupPlayback()
+      return
+    }
     if (!authManager.loggedIn) {
       authManager.beginLogin()
       return
@@ -3601,10 +3606,11 @@ Item {
       daemonManager.setupPlayback()
       return
     }
-    if (!daemonManager.credentialsAvailable) {
-      daemonManager.authenticate()
+    if (!authManager.loggedIn) {
+      authManager.beginLogin()
       return
     }
+    daemonManager.checkCredentials()
     finishLoginFlow()
   }
 
@@ -3613,7 +3619,6 @@ Item {
     lastError = ""
     statusMessage = ""
     authManager.cancelLogin()
-    connectAuthManager.cancelLogin()
     daemonManager.cancelAuthentication()
   }
 
@@ -3644,7 +3649,6 @@ Item {
     deviceProbeTimer.stop()
     spotifyApi.cancelSearch()
     daemonManager.clearCredentials()
-    connectAuthManager.logout()
     authManager.logout()
     clearData()
   }
@@ -3821,14 +3825,9 @@ Item {
     target: authManager
     function onLoginSucceeded() {
       root.syncCurrentTrackSaved(true)
-      var continueSetup = root.loginFlowActive && (!root.daemon.playbackReady
-        || !root.daemon.credentialsAvailable)
+      daemonManager.checkCredentials()
       root.finishLoginFlow()
-      if (continueSetup) {
-        root.loginFlowActive = true
-        root.succeed("Spotify connected · finishing playback on this computer")
-        root.continueLocalPlaybackSetup()
-      }
+      if (root.uiVisible) root.ensureVisibleLocalReceiver()
       if (root.localActivationRequested) deviceProbeTimer.restart()
     }
     function onLoggedOut() {
@@ -3941,38 +3940,11 @@ Item {
     }
   }
 
-  Connections {
-    target: connectAuthManager
-    function onLoginSucceeded() {
-      var requested = root.pendingConnectDeviceId
-      var device = root.deviceForId(requested)
-      if (!requested || !device) return
-      root.statusMessage = "Connecting to " + device.name
-      connectAuthManager.withAccessToken(function(token, error) {
-        if (root.pendingConnectDeviceId !== requested) return
-        if (token) spotifyConnectManager.activate(requested, token)
-        else {
-          root.pendingConnectDeviceId = ""
-          root.fail(error || "Spotify could not authorize this speaker")
-        }
-      })
-    }
-    function onSessionUnavailable(reason) {
-      if (!root.pendingConnectDeviceId) return
-      root.pendingConnectDeviceId = ""
-      root.connectActivationAttempts = 0
-      root.pendingConnectWakeTried = false
-      root.fail(reason || "Spotify could not authorize this speaker")
-    }
-  }
-
   Timer {
     interval: 3000
     running: !root.settingsReady
     onTriggered: {
-      root.auth.sessionChecked = true
-      root.auth.lastError = "Spotify settings are unavailable. Open Settings and apply your app client ID."
-      root.auth.finishWaiters("", root.auth.lastError)
+      root.fail("Spotify settings are unavailable. Reopen the player to retry.")
     }
   }
 
@@ -4228,24 +4200,16 @@ Item {
       root.finishSleepTimer()
   }
 
-  AuthManager {
+  NativeSession {
     id: authManager
     pluginDir: root.pluginDir
-    customClientId: settings.clientId
-    settingsReady: root.settingsReady
-  }
-
-  AuthManager {
-    id: connectAuthManager
-    pluginDir: root.pluginDir
-    clientId: "65b708073fc0480ea92a077233ca87bd"
-    oauthPort: 8990
-    scopes: ["streaming"]
+    enabled: daemonManager.playbackReady && !daemonManager.usingFallbackRuntime
   }
 
   SpotifyApi {
     id: spotifyApi
     auth: authManager
+    nativeSession: authManager
   }
 
   SpotifyConnectManager {

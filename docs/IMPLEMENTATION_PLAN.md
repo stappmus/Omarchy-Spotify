@@ -2,6 +2,17 @@
 
 Updated 13 November 2026. Fix installation and authentication first, publish a verifiable release, then repair playback and finish optional features. Do not merge the backlog wholesale: many PRs duplicate one another or contain work already implemented on main.
 
+## Authentication direction superseded, 13 November 2026
+
+The user rejected personal Developer app setup. W2.4 and the separate-grant
+onboarding in this historical plan are superseded by a repository-owned native
+session with one browser pairing login. The implementation lives under
+`backend/src/spotify/` and `NativeSession.qml`; the existing pinned librespot
+library is retained. There is no spotatui build/runtime dependency or proxy.
+Fresh login, saved-session restart, library/search, playlist edits and actual
+player startup are release gates. Do not represent a playback-only fallback as
+a complete installation. See `IMPLEMENTATION_STATUS.md` for observed evidence.
+
 ## Scope and baseline
 
 The GitHub inventory contains **63 issues (38 open, 25 closed)** and **61 PRs (32 open, 11 merged, 18 closed without a merge)**. Every item has a disposition below. The review includes issue/PR metadata, available discussions and reviews, open-PR file inventories, targeted patches, local source, Actions and releases. This is a backlog implementation plan, not approval of every line in every proposed patch or an exhaustive audit of external forks and attachment prototypes. GitHub Discussions is disabled.

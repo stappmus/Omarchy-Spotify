@@ -42,16 +42,30 @@ BorderSurface {
     + (queueActionVisible ? 1 : 0) + (playActionVisible ? 1 : 0)
   readonly property real fullActionWidth:
     (durationActionVisible ? durationLabel.implicitWidth : 0)
-    + (saveActionVisible ? saveButton.implicitWidth : 0)
-    + (playlistActionVisible ? playlistButton.implicitWidth : 0)
-    + (queueActionVisible ? queueButton.implicitWidth : 0)
-    + (playActionVisible ? playButton.implicitWidth : 0)
+    + (saveActionVisible ? naturalActionWidth(saveButton, saveMetrics) : 0)
+    + (playlistActionVisible ? naturalActionWidth(playlistButton, playlistMetrics) : 0)
+    + (queueActionVisible ? naturalActionWidth(queueButton, queueMetrics) : 0)
+    + (playActionVisible ? naturalActionWidth(playButton, playMetrics) : 0)
     + Math.max(0, fullActionCount - 1) * Style.space(2)
   readonly property real titleWidthWithFullActions: Math.max(0,
     contentRow.width - artworkSurface.width - fullActionWidth
       - contentRow.spacing * (artworkSurface.visible ? 2 : 1))
   readonly property bool compactActions: Api.mediaRowShouldCompact(
     titleMetrics.advanceWidth, titleWidthWithFullActions, fullActionCount)
+
+  // Button's natural width includes effective child visibility. Measuring a
+  // hidden button would shrink the full width and toggle compact mode forever.
+  function naturalActionWidth(button, metrics) {
+    var hover = Border.controlSpec("hover-cursor", button.foreground, button.accent)
+    var selected = Border.controlSpec("selected", button.foreground, button.accent)
+    return metrics.advanceWidth + button.horizontalPadding * 2
+      + Math.max(Border.left(hover), Border.left(selected))
+      + Math.max(Border.right(hover), Border.right(selected))
+  }
+  TextMetrics { id: saveMetrics; text: saveButton.iconText; font.family: saveButton.fontFamily; font.pixelSize: saveButton.iconSize }
+  TextMetrics { id: playlistMetrics; text: playlistButton.iconText; font.family: playlistButton.fontFamily; font.pixelSize: playlistButton.iconSize }
+  TextMetrics { id: queueMetrics; text: queueButton.iconText; font.family: queueButton.fontFamily; font.pixelSize: queueButton.iconSize }
+  TextMetrics { id: playMetrics; text: playButton.iconText; font.family: playButton.fontFamily; font.pixelSize: playButton.iconSize }
 
   signal activated(var item)
   signal openRequested(var item)

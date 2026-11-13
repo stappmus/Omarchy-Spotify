@@ -26,7 +26,7 @@ mkdir -p "$release_source/scripts" "$release_mock_bin" "$release_fixture"
 while IFS= read -r backend_file; do
   mkdir -p "$release_source/$(dirname -- "$backend_file")"
   cp -- "$source_root/$backend_file" "$release_source/$backend_file"
-done < <(git -C "$source_root" ls-files backend)
+done < <(cd "$source_root" && rg --files backend)
 cp -- "$source_root/scripts/build-backend.sh" \
   "$source_root/scripts/backend-source-id.sh" "$release_source/scripts/"
 cp -- "$source_root/manifest.json" "$source_root/rust-toolchain.toml" \
@@ -36,8 +36,8 @@ git -C "$release_source" config user.name "Omarchy Spotify tests"
 git -C "$release_source" config user.email "tests@example.invalid"
 git -C "$release_source" add .
 git -C "$release_source" commit -qm "Release source"
-git -C "$release_source" tag -a v1.0.4 -m "Release v1.0.4"
-release_commit=$(git -C "$release_source" rev-parse 'refs/tags/v1.0.4^{commit}')
+git -C "$release_source" tag -a v1.1.0 -m "Release v1.1.0"
+release_commit=$(git -C "$release_source" rev-parse 'refs/tags/v1.1.0^{commit}')
 printf '%s\n' 'UI-only change after the release' >"$release_source/Panel.qml"
 git -C "$release_source" add Panel.qml
 git -C "$release_source" commit -qm "Change only the UI"
@@ -123,8 +123,8 @@ for rejection in checksum attestation; do
   printf '%s  %s\n' "${release_hash%% *}" "$release_asset_name" > "$release_sums"
 done
 
-printf '%s\n' '// committed backend change' >>"$release_source/backend/src/main.rs"
-git -C "$release_source" add backend/src/main.rs
+printf '%s\n' '// committed backend change' >>"$release_source/backend/src/spotify/transport.rs"
+git -C "$release_source" add backend/src/spotify/transport.rs
 git -C "$release_source" commit -qm "Change backend after release"
 : >"$release_gh_log"
 : >"$release_cargo_log"
@@ -263,17 +263,17 @@ OMARCHY_SPOTIFY_RUNTIME_DIR="$runtime_backend" \
 find "$runtime_config" -maxdepth 1 -type d -name 'omarchy-spotify.bak.*' \
   | grep -q .
 
-# The in-app first-run wrapper must complete the unprivileged setup directly
-# when spotifyd is already present.
-PATH="$mock_bin:$PATH" \
+# A playback-only fallback must not be reported as a successful native setup.
+if PATH="$mock_bin:$PATH" \
 XDG_CONFIG_HOME="$runtime_config" \
 XDG_CACHE_HOME="$runtime_cache" \
 XDG_STATE_HOME="$runtime_state" \
 OMARCHY_SPOTIFY_RUNTIME_DIR="$runtime_backend" \
 OMARCHY_SPOTIFY_SKIP_BACKEND_BUILD=1 \
-  "$source_root/scripts/setup-playback.sh" >/dev/null
-[[ -f $runtime_spotify_config && -f $runtime_unit ]]
-grep -qx 'device_name = "Omarchy Spotify"' "$runtime_spotify_config"
+  "$source_root/scripts/setup-playback.sh" >/dev/null 2>&1; then
+  echo "Native setup accepted a playback-only fallback" >&2
+  exit 1
+fi
 
 # A clean source install records both the reviewed backend-source fingerprint
 # and installed executable hash. The release path writes the same records only
@@ -491,7 +491,7 @@ grep -qx 'umask 077' "$source_root/scripts/spotifyd-auth.sh"
 grep -q 'remove-runtime.sh.*--purge' "$source_root/scripts/uninstall.sh"
 grep -q 'omarchy plugin remove quickshell.spotify --yes' "$source_root/scripts/uninstall.sh"
 grep -q '^## Remove it completely$' "$source_root/README.md"
-grep -q 'pkexec /usr/bin/pacman -S --needed --noconfirm spotifyd' \
+grep -q -- '--require-native' \
   "$source_root/scripts/setup-playback.sh"
 ! grep -q 'sudo' "$source_root/scripts/setup-playback.sh"
 grep -q 'exec /usr/bin/spotifyd authenticate' \
@@ -500,7 +500,7 @@ grep -q 'omarchy-spotify-backend' "$source_root/scripts/spotifyd-auth.sh"
 grep -q -- '--config-path "$config_root/omarchy-spotify/spotifyd.conf"' \
   "$source_root/scripts/spotifyd-auth.sh"
 grep -q -- '--oauth-port 8000' "$source_root/scripts/spotifyd-auth.sh"
-# Web API has no borrowed default identity; Connect keeps its separate grant.
+# The legacy OAuth component stays isolated; the app uses native login.
 grep -q 'property string clientId: ""' "$source_root/AuthManager.qml"
 ! grep -q 'd420a117a32841c2b3474932e49fb54b' "$source_root/AuthManager.qml"
 grep -q 'readonly property string redirectUri: "http://127.0.0.1:"' \
@@ -508,8 +508,8 @@ grep -q 'readonly property string redirectUri: "http://127.0.0.1:"' \
 grep -q 'resolvedClientId' "$source_root/AuthManager.qml"
 grep -q 'customClientId' "$source_root/AuthManager.qml"
 grep -qF '[0-9a-f]{32}' "$source_root/AuthManager.qml"
-grep -q '"clientId"' "$source_root/manifest.json"
-grep -q 'customClientId: settings.clientId' "$source_root/Service.qml"
+! grep -q '"clientId"' "$source_root/manifest.json"
+grep -q 'nativeSession: authManager' "$source_root/Service.qml"
 ! grep -q '"oauthPort"' "$source_root/manifest.json"
 grep -q 'window.close()' "$source_root/OAuth.js"
 grep -q 'gh attestation verify' "$source_root/scripts/build-backend.sh"
@@ -524,7 +524,7 @@ if grep -E '^[[:space:]]*uses:' \
   echo "release-backend.yml contains a mutable action reference" >&2
   exit 1
 fi
-jq -e '.version == "1.0.4"
+jq -e '.version == "1.1.0"
   and .barWidget.defaultSection == "left"
   and .barWidget.defaults.showMiniPlayer == "On"
   and (.barWidget.schema[] | select(.key == "showMiniPlayer").defaultValue) == "On"

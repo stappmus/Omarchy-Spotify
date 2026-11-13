@@ -25,7 +25,7 @@ qml_test_runner=/usr/lib/qt6/bin/qmltestrunner
 
 omarchy plugin validate .
 qmllint -I /usr/share/omarchy/shell Api.js OAuth.js AuthManager.qml \
-  SpotifyApi.qml SearchController.qml FilterScanController.qml SpotifyConnectManager.qml DaemonManager.qml BackendClient.qml Service.qml \
+  NativeSession.qml SpotifyApi.qml SearchController.qml FilterScanController.qml SpotifyConnectManager.qml DaemonManager.qml BackendClient.qml Service.qml \
   BarWidget.qml PlaybackSlider.qml ArtistLinks.qml MediaByline.qml MediaRow.qml MediaCollection.qml \
   ArtistSearchSection.qml LyricsInstallPrompt.qml RetryImage.qml ShortcutHint.qml \
   TransportButton.qml Panel.qml

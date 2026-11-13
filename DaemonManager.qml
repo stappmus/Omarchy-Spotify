@@ -309,6 +309,7 @@ Item {
       root.setupBusy = false
       if (exitCode === 0) {
         root.lastError = ""
+        root.usingFallbackRuntime = false
         root.binaryAvailable = true
         root.binaryChecked = true
         root.unitAvailable = true
@@ -319,7 +320,9 @@ Item {
         return
       }
       root.checkRequirements()
-      root.lastError = exitCode === 20
+      root.lastError = exitCode === 30
+        ? "Spotify sign-in support could not be installed. Check your connection and try again."
+        : exitCode === 20
         ? "Omarchy could not open the system authorization prompt"
         : (exitCode === 21
           ? "Playback setup was cancelled or could not install the required package"

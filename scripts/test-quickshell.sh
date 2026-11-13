@@ -34,6 +34,21 @@ rg -q AUTH_STARTUP_PASS "$test_root/startup-output" || {
 echo 'Quickshell startup identity integration passed.'
 
 mkdir -p "$test_root/scripts"
+cp "$source_root/NativeSession.qml" "$test_root/"
+cp "$source_root/tests/fixtures/native-session.py" "$test_root/scripts/native-session.sh"
+chmod +x "$test_root/scripts/native-session.sh"
+cp "$source_root/tests/integration/NativeSession.qml" "$test_root/shell.qml"
+env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen timeout 10s \
+  qs --no-color -p "$test_root" > "$test_root/native-output" 2>&1 || {
+  cat "$test_root/native-output"
+  exit 1
+}
+rg -q NATIVE_SESSION_PASS "$test_root/native-output" || {
+  cat "$test_root/native-output"
+  exit 1
+}
+echo 'Quickshell native login, cancellation and logout integration passed.'
+
 cp "$source_root/SpotifyConnectManager.qml" "$test_root/"
 printf '#!/usr/bin/env python3\nimport sys, time\nfor _ in range(3): sys.stdin.readline()\ntime.sleep(0.02)\n' > "$test_root/scripts/spotify-connect-device.py"
 chmod +x "$test_root/scripts/spotify-connect-device.py"

@@ -270,7 +270,10 @@ fn open_runtime_cache(config: &BackendConfig) -> Result<Cache> {
     .context("failed to open the playback cache")
 }
 
-fn load_credentials(credentials_root: &Path, legacy_cache_root: &Path) -> Result<Credentials> {
+pub(crate) fn load_credentials(
+    credentials_root: &Path,
+    legacy_cache_root: &Path,
+) -> Result<Credentials> {
     let oauth_path = credentials_root.join("oauth");
     let oauth_cache = Cache::new(Some(oauth_path.as_path()), None, None, None)
         .context("failed to open the OAuth credential store")?;
@@ -590,63 +593,8 @@ fn track_from_audio_item(item: &AudioItem) -> Track {
     }
 }
 
-pub async fn authenticate(config: &BackendConfig, oauth_port: u16) -> Result<()> {
-    const OAUTH_SCOPES: &[&str] = &[
-        "app-remote-control",
-        "playlist-modify",
-        "playlist-modify-private",
-        "playlist-modify-public",
-        "playlist-read",
-        "playlist-read-collaborative",
-        "playlist-read-private",
-        "streaming",
-        "ugc-image-upload",
-        "user-follow-modify",
-        "user-follow-read",
-        "user-library-modify",
-        "user-library-read",
-        "user-modify",
-        "user-modify-playback-state",
-        "user-modify-private",
-        "user-personalized",
-        "user-read-birthdate",
-        "user-read-currently-playing",
-        "user-read-email",
-        "user-read-play-history",
-        "user-read-playback-position",
-        "user-read-playback-state",
-        "user-read-private",
-        "user-read-recently-played",
-        "user-top-read",
-    ];
-
-    let oauth_path = config.credentials_root.join("oauth");
-    let cache = Cache::new(Some(oauth_path.as_path()), None, None, None)
-        .context("failed to open the OAuth credential store")?;
-    let session_config = SessionConfig::default();
-    let client = librespot_oauth::OAuthClientBuilder::new(
-        &session_config.client_id,
-        &format!("http://127.0.0.1:{oauth_port}/login"),
-        OAUTH_SCOPES.to_vec(),
-    )
-    .with_custom_message(
-        "<h3 style=\"color: darkgreen\">Authentication successful. You can return to Omarchy Spotify.</h3>",
-    )
-    .open_in_browser()
-    .build()
-    .context("failed to create the Spotify OAuth client")?;
-
-    let token = client
-        .get_access_token_async()
-        .await
-        .context("Spotify authorization did not complete")?;
-    let session = Session::new(session_config, Some(cache));
-    session
-        .connect(Credentials::with_access_token(token.access_token), true)
-        .await
-        .context("failed to save the Spotify playback session")?;
-    println!("Playback authentication succeeded.");
-    Ok(())
+pub async fn authenticate(config: &BackendConfig, _oauth_port: u16) -> Result<()> {
+    crate::spotify::authenticate(config.clone()).await
 }
 
 pub fn send_without_reply(commands: &EngineSender, command: Command) -> Result<(), ProtocolError> {

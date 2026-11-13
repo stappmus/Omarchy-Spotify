@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Local playback owns a credential separate from the Web API refresh token.
+# Native login shares a reusable credential with library access and playback.
 # Force a private creation mode even when omarchy-shell inherited umask 0022.
 umask 077
 

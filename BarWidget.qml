@@ -411,8 +411,7 @@ BarWidget {
     }
     else if (action === "volume") toggleMute()
     else if (action === "setup") {
-      if (spotify && !spotify.auth.validClientId) openFullPanel({tab: "setup"})
-      else if (spotify && !spotify.loginBusy) spotify.login()
+      if (spotify && !spotify.loginBusy) spotify.login()
     } else if (action === "setup-cancel") {
       if (spotify) spotify.cancelLogin()
     } else if (action === "open") openFullPanel()

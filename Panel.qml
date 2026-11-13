@@ -301,12 +301,11 @@ Item {
     if (!service) return "Spotify unavailable"
     if (service.loginBusy) return service.loginProgress + "…"
     if (fullyConnected) return "Connected"
-    if (!service.auth.validClientId) return "Configure Spotify app"
     if (accountConnected && !service.daemon.playbackReady)
       return "Set up playback"
     if (accountConnected) return "Finish playback setup"
     if (!service.daemon.playbackReady) return "Set up and continue"
-    return "Continue with Spotify"
+    return "Log in with Spotify"
   }
 
   function connectionHeadline() {
@@ -315,7 +314,7 @@ Item {
     if (fullyConnected) return "You're connected"
     if (accountConnected) return "Account connected"
     if (!service.daemon.playbackReady) return "One quick setup, then Spotify"
-    return "Continue with Spotify"
+    return "Log in with Spotify"
   }
 
   function connectionErrorText() {
@@ -466,9 +465,9 @@ Item {
     var state = service.sessionState || ({})
     service.restoreLastRadioPlaylist(state.lastRadioPlaylist)
     searchText = String(state.searchText || service.searchQuery || "")
-    searchType = Api.SEARCH_TYPES.indexOf(String(state.searchType || "")) >= 0
+    searchType = ["track", "artist", "album", "playlist", "show", "episode"].indexOf(String(state.searchType || "")) >= 0
       ? String(state.searchType) : "track"
-    libraryType = ["tracks", "albums", "artists", "shows", "episodes", "audiobooks"]
+    libraryType = ["tracks", "albums", "artists", "shows", "episodes"]
       .indexOf(String(state.libraryType || "")) >= 0 ? String(state.libraryType) : "tracks"
     homeType = ["recent", "tracks", "artists"].indexOf(String(state.homeType || "")) >= 0
       ? String(state.homeType) : "recent"
@@ -1014,13 +1013,14 @@ Item {
       actions.push("home-recent", "home-tracks", "home-artists")
     if (currentTab === "library")
       actions.push("library-tracks", "library-albums", "library-artists",
-        "library-shows", "library-episodes", "library-audiobooks")
+        "library-shows", "library-episodes")
     if (currentTab === "playlists" && service && service.selectedPlaylist)
       actions.push("playlist-play", "playlist-more")
     if (showingUniversalSearch) {
       if (service && service.searchError) actions.push("retry-search")
       for (var s = 0; s < Api.SEARCH_TYPES.length; s++)
-        actions.push("search-" + Api.SEARCH_TYPES[s])
+        if (Api.SEARCH_TYPES[s] !== "audiobook")
+          actions.push("search-" + Api.SEARCH_TYPES[s])
     }
     var artistCatalog = currentTab === "detail" && service && service.detailItem
       && service.detailItem.type === "artist" && !artistScopedSearchActive
@@ -2031,7 +2031,7 @@ Item {
   }
 
   // Track the combined service state directly. During the first login, the
-  // Web API token and spotifyd credential finish in separate event turns;
+  // Account restoration and playback readiness finish in separate event turns;
   // listening only to those nested objects can miss the final combined edge
   // while the panel loader is being remapped by the browser.
   onShortcutHintsEnabledChanged: if (!shortcutHintsEnabled) clearShortcutMode()
@@ -2095,10 +2095,10 @@ Item {
     if (currentTab === "login") return "Connect your Spotify account to get started"
     if (showingUniversalSearch) return activeSearchScope.available
       ? "Searching everywhere — enable the area checkmark to narrow the results"
-      : "Songs, artists, albums, playlists, podcasts and audiobooks"
+      : "Songs, artists, albums, playlists and podcasts"
     if (currentTab === "home") return "Recently played and your personal favorites"
     if (currentTab === "discover") return "Personal mixes and fresh music from Spotify"
-    if (currentTab === "library") return "Songs, albums, artists, podcasts and audiobooks"
+    if (currentTab === "library") return "Songs, albums, artists and podcasts"
     if (currentTab === "playlists") return "Your Spotify playlists"
     if (currentTab === "queue") return "What plays next"
     if (currentTab === "devices") return "Speakers and players"
@@ -2109,7 +2109,7 @@ Item {
       return service && service.detailItem
         ? Api.spotifyTypeLabel(service.detailItem.type) : "Spotify item"
     }
-    return "Songs, artists, albums, playlists, podcasts and audiobooks"
+    return "Songs, artists, albums, playlists and podcasts"
   }
 
   function sidebarPlaylistName(item) {
@@ -4621,7 +4621,7 @@ Item {
           emptyMessage: root.service && root.service.homeLoading
             ? "Loading your listening history…"
             : (root.homeFilter.trim() ? "No matches in " + root.activeSearchScope.label + "."
-              : "No listening history is available yet.")
+              : (root.service ? root.service.homeUnavailableReason : "No listening history is available yet."))
           onActivated: function(item, items, uri) {
             root.activateMedia(item, items, uri)
           }
@@ -5338,8 +5338,7 @@ Item {
               { type: "album", label: "Albums" },
               { type: "playlist", label: "Playlists" },
               { type: "show", label: "Podcasts" },
-              { type: "episode", label: "Episodes" },
-              { type: "audiobook", label: "Books" }
+              { type: "episode", label: "Episodes" }
             ]
 
             Button {
@@ -5441,7 +5440,7 @@ Item {
           Text {
             width: parent.width
             visible: !root.service || root.service.searchHistory.length === 0
-            text: "Type a title, artist, album, playlist, podcast, episode, or audiobook."
+            text: "Type a title, artist, album, playlist, podcast, or episode."
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -5510,8 +5509,7 @@ Item {
               { type: "albums", label: "Albums", icon: "󰀥" },
               { type: "artists", label: "Artists", icon: "󰠃" },
               { type: "shows", label: "Podcasts", icon: "󰦔" },
-              { type: "episodes", label: "Episodes", icon: "󰐾" },
-              { type: "audiobooks", label: "Books", icon: "󰂺" }
+              { type: "episodes", label: "Episodes", icon: "󰐾" }
             ]
             Button {
               required property var modelData
@@ -6248,6 +6246,24 @@ Item {
                 }
               }
 
+              Text {
+                width: parent.width
+                visible: root.service && root.service.auth.pairingCode !== ""
+                text: root.service ? "Spotify pairing code: " + root.service.auth.pairingCode : ""
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                wrapMode: Text.WordWrap
+              }
+              Button {
+                visible: root.service && root.service.auth.loginUrl !== ""
+                text: "Open Spotify sign-in"
+                foreground: root.foreground
+                onClicked: if (root.service) root.service.auth.openLoginPage()
+              }
+
               Row {
                 width: parent.width
                 spacing: Style.space(7)
@@ -6262,8 +6278,7 @@ Item {
                   selected: root.fullyConnected
                   enabled: root.service && !root.fullyConnected && !root.service.loginBusy
                   onClicked: {
-                    if (root.service && !root.service.auth.validClientId) root.chooseTab("setup")
-                    else if (root.service) root.service.login()
+                    if (root.service) root.service.login()
                   }
                 }
 
@@ -6372,9 +6387,9 @@ Item {
                   : (root.service.loginBusy ? root.service.loginProgress + "…"
                   : (root.fullyConnected ? "Connected and ready to play"
                   : (root.service.auth.loggedIn
-                    ? "Spotify is connected · playback needs approval"
+                    ? "Spotify is connected · preparing playback"
                     : (root.service.daemon.credentialsAvailable
-                      ? "Playback is ready · Spotify needs approval"
+                      ? "Restoring your Spotify session"
                       : "Not connected"))))
                 color: root.fullyConnected ? root.accent : root.foreground
                 font.family: root.fontFamily
@@ -6394,8 +6409,7 @@ Item {
                 visible: !root.fullyConnected
                 enabled: root.service && !root.service.loginBusy
                 onClicked: {
-                    if (root.service && !root.service.auth.validClientId) root.chooseTab("setup")
-                    else if (root.service) root.service.login()
+                    if (root.service) root.service.login()
                   }
               }
               Button {
@@ -6564,43 +6578,6 @@ Item {
                   onTextEdited: root.draftIdleMinutes = text
                   onEditingFinished: root.persistDraftSettings()
                 }
-              }
-            }
-
-            Column {
-              width: parent.width
-              spacing: Style.space(6)
-              Text {
-                text: "SPOTIFY DEVELOPER APP · REQUIRED"
-                color: root.muted
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-              TextField {
-                width: parent.width
-                foreground: root.foreground
-                placeholderText: "32-character client ID"
-                text: root.draftClientId
-                onTextEdited: root.draftClientId = text
-              }
-              Text {
-                width: parent.width
-                text: root.draftClientId.trim() && !/^[0-9a-f]{32}$/i.test(root.draftClientId.trim())
-                  ? "Enter a client ID with exactly 32 hexadecimal characters."
-                  : "Register http://127.0.0.1:8989/login in your Developer app and add your Spotify account under User Management. Changing the ID requires authorization."
-                color: root.muted
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-              Button {
-                text: "Apply app"
-                foreground: root.foreground
-                enabled: root.service && (root.draftClientId.trim() === ""
-                  || /^[0-9a-f]{32}$/i.test(root.draftClientId.trim()))
-                  && root.draftClientId.trim().toLowerCase() !== String(root.service.settings.clientId || "")
-                onClicked: root.service.persistSettings({ clientId: root.draftClientId.trim() })
               }
             }
 

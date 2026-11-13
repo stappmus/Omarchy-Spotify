@@ -4,12 +4,13 @@ set -euo pipefail
 source_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 install_spotifyd=0
 force_config=0
+require_native=0
 skip_backend_build=${OMARCHY_SPOTIFY_SKIP_BACKEND_BUILD:-0}
 device_name="Omarchy Spotify"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/setup.sh [--install-spotifyd] [--skip-backend-build] [--force-config] [--device-name NAME]
+Usage: scripts/setup.sh [--require-native] [--install-spotifyd] [--skip-backend-build] [--force-config] [--device-name NAME]
 
 Verify or build the plugin-owned playback backend and install its user unit.
 spotifyd remains an optional fallback. Neither unit is enabled at login.
@@ -18,6 +19,10 @@ EOF
 
 while (( $# > 0 )); do
   case $1 in
+    --require-native)
+      require_native=1
+      shift
+      ;;
     --install-spotifyd)
       install_spotifyd=1
       shift
@@ -110,6 +115,11 @@ elif (( ! skip_backend_build )); then
   else
     echo "Warning: the plugin-owned backend could not be built; checking spotifyd fallback." >&2
   fi
+fi
+
+if (( require_native && ! backend_ready )); then
+  echo "setup.sh: the native backend is required for Spotify sign-in. Check the connection and retry setup." >&2
+  exit 30
 fi
 
 if (( ! backend_ready )) && ! command -v spotifyd >/dev/null 2>&1; then

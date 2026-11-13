@@ -87,6 +87,45 @@ TestCase {
     failSend = false
   }
 
+  function test_nativeTransportAvoidsWebTokensAndCancelsObsoleteSearch() {
+    var calls = []
+    var native = { request: function(method, path, query, body, callback) {
+      var request = {method:method, path:path, callback:callback, cancelled:false}
+      calls.push(request)
+      return {abort:function() { request.cancelled = true }}
+    }}
+    var api = createTemporaryObject(apiComponent, testCase, {nativeSession:native})
+    failFactory = true
+    accessTokenError = "There must be no Web API token request"
+    var completions = 0
+    api.search("old", "track", function() { completions++ })
+    api.search("new", "track", function() { completions++ })
+    verify(calls[0].cancelled)
+    calls[0].callback(200, {tracks:{items:[]}}, "")
+    compare(completions, 0)
+    calls[1].callback(200, {tracks:{items:[]}}, "")
+    compare(completions, 1)
+    compare(api.requestsInFlight, 0)
+    compare(requests.length, 0)
+  }
+
+  function test_nativeRateLimitDelaysFurtherRequestsWithoutRepeatingMutation() {
+    var calls = []
+    var native = { request: function(method, path, query, body, callback) {
+      calls.push(callback)
+      return {abort:function() {}}
+    }}
+    var api = createTemporaryObject(apiComponent, testCase, {nativeSession:native})
+    var completions = 0
+    api.request("POST", "/me/playlists", null, {name:"test"}, function() { completions++ })
+    calls[0](429, null, "Spotify is busy")
+    compare(completions, 1)
+    verify(api.rateLimitedUntil > clock)
+    api.request("GET", "/me/tracks", null, null, function() {})
+    compare(calls.length, 1)
+    compare(api.requestQueue.length, 1)
+  }
+
   function test_priorityStartsMutationsThenInteractiveReads() {
     var api = createTemporaryObject(apiComponent, testCase)
     verify(api)

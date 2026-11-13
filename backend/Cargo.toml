@@ -1,6 +1,6 @@
 [package]
 name = "omarchy-spotify-backend"
-version = "1.0.4"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.87"
 license = "MIT"
@@ -16,12 +16,22 @@ librespot-core = { git = "https://github.com/stappmus/librespot", rev = "6d3ecd7
 librespot-metadata = { git = "https://github.com/stappmus/librespot", rev = "6d3ecd76115c08a5e606d6f6d2181932314afed2", default-features = false }
 librespot-oauth = { git = "https://github.com/stappmus/librespot", rev = "6d3ecd76115c08a5e606d6f6d2181932314afed2", default-features = false }
 librespot-playback = { git = "https://github.com/stappmus/librespot", rev = "6d3ecd76115c08a5e606d6f6d2181932314afed2", default-features = false, features = ["pulseaudio-backend"] }
+librespot-protocol = { git = "https://github.com/stappmus/librespot", rev = "6d3ecd76115c08a5e606d6f6d2181932314afed2", default-features = false }
+bytes = "1"
+http = "1"
+protobuf = "3.7"
+prost = "0.14"
+chrono = "0.4"
+futures = "0.3"
+rand = "0.9"
+url = "2.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
 log = "0.4"
 mpris-server = { version = "=0.10.0", features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha1 = "0.10"
-tokio = { version = "1.47", features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
+tokio = { version = "1.47", features = ["io-util", "io-std", "macros", "net", "rt", "signal", "sync", "time"] }
 toml = "0.9"
 
 [profile.release]
@@ -29,3 +39,6 @@ codegen-units = 1
 lto = "thin"
 strip = true
 panic = "abort"
+
+[dev-dependencies]
+rspotify-model = "0.16"

@@ -9,10 +9,9 @@ source_files=(
   rust-toolchain.toml
 )
 
-for source_file in "$source_root"/backend/src/*.rs; do
-  [[ -f $source_file ]] || continue
+while IFS= read -r -d '' source_file; do
   source_files+=("${source_file#"$source_root/"}")
-done
+done < <(find "$source_root/backend/src" -type f -name '*.rs' -print0 | sort -z)
 
 (
   cd "$source_root"

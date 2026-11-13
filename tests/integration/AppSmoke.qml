@@ -11,10 +11,21 @@ ShellRoot {
   Plugin.SpotifyConnectManager { id: receiver; pluginDir: "/nonexistent"; activating: true }
   Plugin.Panel { id: panel; service: spotifyService; width: 1280; height: 800 }
   Plugin.BarWidget { id: widget }
+  Plugin.MediaRow {
+    id: measuredRow
+    width: 240
+    itemData: ({kind:"item", type:"track", uri:"spotify:track:test", name:"A long title that needs compact controls", durationMs:120000})
+    showQueue: true
+    showSave: true
+  }
   Timer {
     interval: 20
     running: true
     onTriggered: {
+      var fullWidth = measuredRow.fullActionWidth
+      measuredRow.actionsExpanded = true
+      if (Math.abs(measuredRow.fullActionWidth - fullWidth) > 0.1)
+        throw new Error("Action visibility changed the full row measurement")
       var expected = decodeURIComponent(String(Qt.resolvedUrl("plugin"))).replace(/^file:\/\//, "")
       if (spotifyService.pluginDir !== expected) throw new Error("Public manifest lost plugin path")
       if (!spotifyService.settingsReady || spotifyService.settings.clientId !== "invalid")

@@ -138,3 +138,34 @@ physical multi-monitor behavior, Sonos/grouped receiver hardware and Bluetooth
 multipoint. Native port-8000 OAuth, typed upstream account errors, exact reconnect
 queue restoration and optional features remain tracked separately. No claim of
 lossless support or a Spotify-side audio-key fix is made.
+
+
+## Native account session, 13 November 2026
+
+Implemented the repository-owned browser pairing flow and native request bridge
+in `backend/src/spotify/`, with `NativeSession.qml` supervising a private stdio
+process. Library and playback share the same durable credential; the mandatory
+Developer app UI and the separate speaker grant are removed. The existing
+pinned librespot dependency is unchanged. There is no spotatui package, binary,
+service, hosted proxy or dependency on its releases. Locally maintained JSON
+adapters preserve MIT attribution, also embedded in `--licenses` output.
+
+Validation: 77 Rust tests, formatting/Clippy, 191 QML tests, 19 Connect helper
+checks, 2 legacy OAuth listener tests, installer/provenance fixtures, native
+login/cancel/retry/logout process integration, and Panel/BarWidget smoke checks
+passed. Live read-only native requests succeeded for profile, liked songs and
+pagination, playlists, albums, follows, shows, device/player/queue state, search,
+library membership, album and artist details. A private temporary playlist
+passed create/add/read/reorder/remove checks and was removed from the library.
+Both temporary test playlists were unlisted after their runs.
+
+Live fresh sign-in passed: Spotify's browser confirmed pairing and the backend
+returned a successful login. A separate process then restored that newly saved
+credential and passed the same profile/library/search/device read checks. Saved
+podcast episodes and episode search also passed live checks. The installed panel
+restored the existing account and displayed live music search results.
+
+Account-wide listening history/top rankings, related artists and audiobooks
+are not implemented for native sign-in in this version. The history page names
+that limitation; unsupported API routes return an explicit error. Physical
+Sonos activation and Bluetooth acceptance remain outstanding.

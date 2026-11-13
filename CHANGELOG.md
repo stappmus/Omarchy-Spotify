@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 (2026-11-13)
+
+- Replace mandatory personal Developer apps and separate playback grants with
+  one browser pairing login, remembered across restarts.
+- Implement device authorization and native Spotify protocol requests in this
+  repository, using the existing pinned playback library. No spotatui package,
+  executable, service or release is required.
+- Connect library, search, catalogues, playlists and Connect controls to the same
+  reusable session as local playback. Preserve old Web API keyring entries.
+- Cancel obsolete requests, discard account caches on sign-in changes and send
+  playlist writes once. Include nested backend sources in release verification.
+- Remove developer-app setup fields and require the native backend during setup.
+- Account-wide listening history/top rankings, related artists and audiobooks
+  remain unavailable with native sign-in; document these gaps explicitly.
+
+
 ## 1.0.4 (2026-11-13)
 
 - Restore third-party plugin paths and settings, including Omarchy 4.5 bar

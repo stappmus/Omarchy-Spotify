@@ -4,6 +4,7 @@ mod failure;
 mod mpris;
 mod protocol;
 mod socket;
+mod spotify;
 mod state;
 
 use std::path::PathBuf;
@@ -18,6 +19,9 @@ use crate::{config::BackendConfig, state::StateStore};
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
+    /// Print notices for locally maintained third-party code.
+    #[arg(long, global = true)]
+    licenses: bool,
     #[arg(long, global = true)]
     config_path: Option<PathBuf>,
     #[arg(long, global = true)]
@@ -31,10 +35,13 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Action {
+    /// Serve native login and browsing over private stdin/stdout.
+    Session,
     /// Validate configuration without connecting to Spotify.
     Check,
     /// Authorize local playback and store a private reusable credential.
     Authenticate {
+        /// Accepted for older launch scripts; device login uses no callback port.
         #[arg(long, default_value_t = 8000)]
         oauth_port: u16,
     },
@@ -69,6 +76,10 @@ async fn main() -> std::process::ExitCode {
 }
 
 async fn launch(cli: Cli) -> Result<()> {
+    if cli.licenses {
+        println!("{}", spotify::LICENSE_NOTICE);
+        return Ok(());
+    }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let config_path = cli.config_path.unwrap_or_else(config::default_config_path);
     let mut config =
@@ -85,6 +96,7 @@ async fn launch(cli: Cli) -> Result<()> {
     }
 
     match cli.action {
+        Some(Action::Session) => return spotify::serve(config).await,
         Some(Action::Check) => {
             println!("{}", serde_json::to_string(&config.summary())?);
             return Ok(());

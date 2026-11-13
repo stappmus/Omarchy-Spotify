@@ -96,17 +96,21 @@ from reloading the plugin — and killing the build — mid-setup. A stale
 
 ## Authentication
 
-Web API access uses Spotify's Authorization Code with PKCE flow and a required
-personal Developer app identity. Settings load before session restoration;
-Web API and streaming grants remain isolated. The callback listener retains its
-loopback socket before signalling that the browser may open. The fixed callback
-is `http://127.0.0.1:8989/login`. The playback backend performs its independent
-browser authorization on loopback port `8000`. Receivers that advertise the
-`accesstoken` or `authorization_code` token type use a separate, on-demand,
-streaming-only PKCE grant on port `8990`.
+`NativeSession.qml` supervises the repository's backend `session` command over
+private stdin/stdout. The backend owns device authorization, native collection,
+playlist, search, catalogue and Connect requests. No TCP callback port, personal
+Developer app, Web API grant or external proxy is involved. Browser pairing is
+performed on Spotify's website, then a reusable librespot credential serves both
+browsing and playback. Native protocol extensions are implemented locally using
+the existing pinned librespot dependency. Adapted JSON mapping code retains its
+MIT attribution in `THIRD_PARTY_NOTICES.md`; spotatui is not a dependency.
 
-No client secret or Spotify password enters the plugin. OAuth refresh tokens
-are written to GNOME Keyring over stdin and separated by client identity.
+Session cancellation and logout terminate the browsing process, discarding all
+account-specific caches and pending requests. Playlist mutations are never
+retried automatically. Tokens travel only through private process pipes when a
+Connect receiver needs a streaming grant; they do not enter shell arguments,
+settings or diagnostic logs. Old client-scoped keyring entries are untouched.
+
 Reusable local-playback authorization is stored with owner-only permissions in
 `$XDG_STATE_HOME/omarchy-spotify`; older credentials under `$XDG_CACHE_HOME`
 are accepted once and migrated so clearing disposable caches cannot deauthorize

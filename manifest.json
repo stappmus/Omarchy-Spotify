@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "quickshell.spotify",
   "name": "Omarchy Spotify",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "author": "QuickshellSpotify",
   "license": "MIT",
   "description": "Spotify in Quickshell with all the features you need\u2014using about 60 MB of memory versus roughly 950 MB for the official client.",
@@ -44,8 +44,7 @@
       "maxBarTextWidth": "240",
       "fixedBarWidth": "Off",
       "audioQuality": "320 kbps",
-      "showArtwork": "On",
-      "clientId": ""
+      "showArtwork": "On"
     },
     "schema": [
       {
@@ -211,13 +210,6 @@
         ],
         "defaultValue": "On",
         "description": "Download and display cover artwork."
-      },
-      {
-        "key": "clientId",
-        "type": "string",
-        "label": "Spotify Developer app client ID",
-        "defaultValue": "",
-        "description": "Your personal Spotify Developer app client ID is required for account sign-in. A valid 32-hex ID is required. Changing it clears the current session and requires authorization for your app."
       }
     ]
   }

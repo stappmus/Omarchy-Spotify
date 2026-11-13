@@ -141,30 +141,29 @@ can move the widget later with Omarchy's bar controls.
 Local playback installs an exact-version backend only after its GitHub build
 provenance matches this plugin version's tag and the checkout's backend inputs
 still match that tagged source. If verification is unavailable, setup builds
-the locked Rust source locally or offers Omarchy's packaged `spotifyd` fallback
-instead of executing an unverified download.
+the locked Rust source locally. The native backend is required for account sign-in;
+setup never reports a playback-only fallback as a complete installation.
 
-## Create your Spotify Developer app
+## Log in with Spotify
 
-Account sign-in requires your own [Spotify Developer app](https://developer.spotify.com/dashboard).
-The previously shipped shared client is no longer supported. Local playback
-has a separate authorization step.
+Choose **Log in with Spotify**, approve the pairing prompt on Spotify's website,
+and return to the player. If Spotify asks for a code, it is shown in the player.
+The same login connects your library, search and local playback, and is remembered
+across restarts. Spotify Premium is required. No Developer app, client ID, client
+secret or callback URL needs to be configured.
 
-1. Create an app and select Web API. Register `http://127.0.0.1:8989/login`
-   exactly, with no trailing slash and `127.0.0.1` rather than `localhost`.
-2. Add your Spotify account under **User Management**.
-3. In the player's Settings, enter the app's 32-character client ID and choose
-   **Apply app**, then continue with Spotify sign-in. Never enter a client secret.
-4. Finish local playback authorization when prompted.
+The native login and browsing implementation is built from this repository into
+our playback backend. It does not run spotatui or depend on its releases or a
+third-party proxy. It uses Spotify's unofficial native interfaces, which may need
+maintenance when Spotify changes them. Existing playback credentials are reused;
+old Web API keyring entries are left untouched.
 
-Development apps require a Premium owner and allowlisted users and have endpoint
-and quota restrictions. A personal app does not provide unlimited requests.
-See Spotify's [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
-If Spotify is busy, wait for the displayed cooldown before retrying.
+Account-wide listening history/top rankings, related artists and audiobooks are
+not currently implemented in the native backend. Unsupported requests return an
+explicit error rather than pretending the account has no items.
 
-Changing the ID clears in-memory account data and selects a separate keyring
-session. Existing saved sessions are isolated by client ID. After upgrading,
-restart the Omarchy shell so retained plugin services load the new code.
+After upgrading, restart the Omarchy shell so retained plugin services load the
+new code.
 
 ## Remove it completely
 

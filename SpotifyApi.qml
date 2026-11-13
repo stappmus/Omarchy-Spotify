@@ -16,6 +16,7 @@ Item {
 
   required property var auth
 
+  property var nativeSession: null
   property var searchRequest: null
   property int searchSerial: 0
   property var requestQueue: []
@@ -194,6 +195,23 @@ Item {
       return
     }
     url = Api.appendQuery(url, job.query)
+
+    if (nativeSession) {
+      job.sentAt = now()
+      job.activeDeadlineAt = job.sentAt + 45000
+      handle.xhr = nativeSession.request(job.method, job.path, job.query, job.body,
+        function(status, payload, error) {
+          if (handle.aborted || job.finished) return
+          handle.xhr = null
+          if (status === 429) {
+            restrictInFlight = true
+            rateLimitedUntil = Api.nextRateLimitedUntil(now(), null,
+              rateLimitedUntil, job.rateLimitRetries)
+          } else if (status >= 200 && status < 300) restrictInFlight = false
+          finishJob(job, status, payload, error, null)
+        })
+      return
+    }
 
     auth.withAccessToken(function(token, tokenError) {
       if (handle.aborted) {
