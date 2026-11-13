@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Own a loopback OAuth socket before signalling readiness to the QML client."""
 import errno
+import os
 import select
 import socket
 import sys
@@ -32,7 +33,6 @@ def serve(port):
             while time.monotonic() < deadline:
                 if not select.select([sys.stdin.buffer], [], [], max(0, deadline-time.monotonic()))[0]:
                     return 23
-                import os
                 chunk = os.read(sys.stdin.fileno(), 8192)
                 if not chunk:
                     return 23

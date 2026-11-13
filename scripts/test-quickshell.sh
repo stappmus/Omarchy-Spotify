@@ -33,6 +33,22 @@ rg -q AUTH_STARTUP_PASS "$test_root/startup-output" || {
 }
 echo 'Quickshell startup identity integration passed.'
 
+mkdir -p "$test_root/scripts"
+cp "$source_root/SpotifyConnectManager.qml" "$test_root/"
+printf '#!/usr/bin/env python3\nimport sys, time\nfor _ in range(3): sys.stdin.readline()\ntime.sleep(0.02)\n' > "$test_root/scripts/spotify-connect-device.py"
+chmod +x "$test_root/scripts/spotify-connect-device.py"
+cp "$source_root/tests/integration/ConnectControls.qml" "$test_root/shell.qml"
+env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen timeout 10s \
+  qs --no-color -p "$test_root" > "$test_root/controls-output" 2>&1 || {
+  cat "$test_root/controls-output"
+  exit 1
+}
+rg -q CONNECT_CONTROLS_PASS "$test_root/controls-output" || {
+  cat "$test_root/controls-output"
+  exit 1
+}
+echo 'Quickshell asynchronous speaker control integration passed.'
+
 mkdir -p "$test_root/app/plugin" "$test_root/state"
 cp "$source_root/"*.qml "$source_root/"*.js "$test_root/app/plugin/"
 cp -r /usr/share/omarchy/shell/Commons /usr/share/omarchy/shell/Ui "$test_root/app/"

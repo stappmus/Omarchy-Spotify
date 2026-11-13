@@ -2988,6 +2988,11 @@ Item {
       sendPendingPlayback(Api.playbackTargetDeviceId(target, selectedDeviceExplicit))
       return
     }
+    if (!daemonManager.credentialsChecked && (!target || target.local)) {
+      fail("Local playback credentials are still being checked. Try again shortly.")
+      clearPendingPlayback()
+      return
+    }
     if (!daemonManager.credentialsAvailable && (!target || target.local)) {
       fail("Approve playback on this computer in Settings, then try again")
       clearPendingPlayback()
