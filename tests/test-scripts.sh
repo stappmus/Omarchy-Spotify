@@ -103,6 +103,26 @@ cmp -s -- "$release_asset" "$release_runtime/omarchy-spotify-backend"
 grep -q -- "--source-digest $release_commit" "$release_gh_log"
 [[ ! -s $release_cargo_log ]]
 
+# Rejected artifacts are never installed, and explain why source fallback ran.
+for rejection in checksum attestation; do
+  expected_digest="$release_commit"
+  if [[ $rejection == checksum ]]; then
+    printf '%064d  %s\n' 0 "$release_asset_name" > "$release_sums"
+  else
+    expected_digest=invalid
+  fi
+  PATH="$release_mock_bin:$PATH" \
+  TEST_RELEASE_ASSET="$release_asset" TEST_RELEASE_SUMS="$release_sums" \
+  TEST_EXPECTED_DIGEST="$expected_digest" TEST_GH_LOG="$release_gh_log" \
+  TEST_CARGO_LOG="$release_cargo_log" OMARCHY_SPOTIFY_RUNTIME_DIR="$release_runtime" \
+  CARGO_TARGET_DIR="$release_target" \
+    "$release_source/scripts/build-backend.sh" > "$test_root/rejected-output" 2>&1
+  grep -q 'Downloaded release was not verified' "$test_root/rejected-output"
+  grep -q 'mock changed-source build' "$release_runtime/omarchy-spotify-backend"
+  [[ $(<"$release_runtime/backend-origin") == source-build:* ]]
+  printf '%s  %s\n' "${release_hash%% *}" "$release_asset_name" > "$release_sums"
+done
+
 printf '%s\n' '// committed backend change' >>"$release_source/backend/src/main.rs"
 git -C "$release_source" add backend/src/main.rs
 git -C "$release_source" commit -qm "Change backend after release"
@@ -480,13 +500,9 @@ grep -q 'omarchy-spotify-backend' "$source_root/scripts/spotifyd-auth.sh"
 grep -q -- '--config-path "$config_root/omarchy-spotify/spotifyd.conf"' \
   "$source_root/scripts/spotifyd-auth.sh"
 grep -q -- '--oauth-port 8000' "$source_root/scripts/spotifyd-auth.sh"
-# OAuth identity stays immutable by default: the shipped client ID is the
-# fallback, and only a user-supplied, strictly 32-hex client ID can override
-# it — never an arbitrary string from a writable surface. The keyring and OAuth
-# redirect stay scoped to that resolved ID. The streaming-only Connect ID stays
-# internal (not in the manifest).
-grep -q 'property string clientId: "d420a117a32841c2b3474932e49fb54b"' \
-  "$source_root/AuthManager.qml"
+# Web API has no borrowed default identity; Connect keeps its separate grant.
+grep -q 'property string clientId: ""' "$source_root/AuthManager.qml"
+! grep -q 'd420a117a32841c2b3474932e49fb54b' "$source_root/AuthManager.qml"
 grep -q 'readonly property string redirectUri: "http://127.0.0.1:"' \
   "$source_root/AuthManager.qml"
 grep -q 'resolvedClientId' "$source_root/AuthManager.qml"

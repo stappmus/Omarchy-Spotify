@@ -1,6 +1,28 @@
 # Changelog
 
-## 1.0.4 (unreleased)
+## 1.0.4 (2026-11-13)
+
+- Restore third-party plugin paths and settings, including Omarchy 4.5 bar
+  sections, and ignore empty settings pushes from new monitor widgets.
+- Restore saved account sessions after settings load. Require a personal
+  Spotify Developer app instead of the unavailable borrowed client identity.
+- Bind Web API and speaker OAuth callback listeners before opening a browser;
+  report occupied ports explicitly. Native playback port 8000 is unchanged.
+- Qualify Omarchy theme colors to avoid the Qt 6.12 Color type collision.
+- Restore mini-player keyboard toggles through the public bar API and guard
+  service teardown callbacks.
+- Read Omasing installation/enabled state through the public JSON plugin list.
+- Preserve array-like collection playback, queue busy Sonos controls, round-trip
+  all six play modes and reject stale discovery volume observations.
+- Poll remote playback every 15 seconds with a coalesced command follow-up.
+- Distinguish rejected release artifacts from unavailable downloads without
+  weakening attestation checks or the locked-source fallback.
+
+Thanks to the contributors of #75, #78, #79, #81, #86, #104, #105, #113,
+#116, #119, #122 and #124, and everyone who supplied reproductions. These
+changes integrate or adapt their proposals; overlapping directory PRs are
+superseded by the shared fix.
+
 
 - Start `Ctrl+F` and `/` searches across Spotify; press again to search the
   current area.

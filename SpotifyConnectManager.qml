@@ -29,9 +29,11 @@ Item {
   property string controlResult: ""
   property string lastError: ""
 
-  // control() silently drops commands while a helper process is in flight.
-  // Callers that repeat a command, such as a volume drag, check this so they can
-  // retry instead of losing the value they sent last.
+  property var queuedControls: []
+  property int controlGeneration: 0
+  property int runningControlGeneration: 0
+  property double discoveryStartedAt: 0
+  // Absolute controls coalesce; relative transport commands retain order.
   readonly property bool controlBusy: controlling || controlCommand.running
     || activating
 
@@ -48,6 +50,7 @@ Item {
 
   function refresh() {
     if (loading || discoveryCommand.running || !pluginDir) return
+    discoveryStartedAt = Date.now()
     loading = true
     lastError = ""
     discoveryResult = ""
@@ -76,11 +79,23 @@ Item {
     var requested = String(deviceId || "")
     var command = String(action || "").trim().toLowerCase()
     var argument = String(value === undefined ? "" : value).trim()
-    if (controlling || controlCommand.running || activating
-        || !pluginDir || !validDeviceId(requested)
+    if (!pluginDir || !validDeviceId(requested)
         || ["play", "pause", "next", "previous", "seek", "volume", "mode"]
           .indexOf(command) < 0
-        || argument.length > 128 || /[\r\n]/.test(argument)) return
+        || argument.length > 128 || /[\r\n]/.test(argument)) return false
+    if (controlBusy) {
+      var queue = queuedControls.slice()
+      if (["volume", "seek", "mode"].indexOf(command) >= 0)
+        queue = queue.filter(function(item) { return item.device !== requested || item.action !== command })
+      if (queue.length >= 32) {
+        controlFailed(requested, "Too many pending speaker commands. Try again.")
+        return false
+      }
+      queue.push({device: requested, action: command, value: argument})
+      queuedControls = queue
+      return true
+    }
+    runningControlGeneration = controlGeneration
     controlling = true
     controllingDeviceId = requested
     controlAction = command
@@ -90,7 +105,25 @@ Item {
     lastError = ""
     controlCommand.command = [pluginDir + "/scripts/spotify-connect-device.py", "control"]
     controlCommand.running = true
+    return true
   }
+
+  function drainControls() {
+    if (controlBusy || !queuedControls.length) return
+    var queue = queuedControls.slice()
+    var next = queue.shift()
+    queuedControls = queue
+    control(next.device, next.action, next.value)
+  }
+
+  function discardQueuedControls() { queuedControls = []; controlGeneration++ }
+
+  Timer {
+    id: drainTimer
+    interval: 0
+    onTriggered: root.drainControls()
+  }
+  onControlBusyChanged: if (!controlBusy) drainTimer.restart()
 
   function rememberVolume(deviceId, value) {
     var requested = String(deviceId || "")
@@ -106,6 +139,7 @@ Item {
       }
       var updated = Api.shallowCopy(item)
       updated.volumePercent = volume
+      updated.volumeObservedAt = Date.now()
       changed = true
       next.push(updated)
     }
@@ -134,6 +168,7 @@ Item {
         activationRequired: true,
         activeUser: item.activeUser === true,
         volumePercent: Api.normalizeVolumePercent(item.volumePercent),
+        volumeObservedAt: discoveryStartedAt,
         tokenType: Api.spotifyConnectTokenType(item.tokenType)
       })
     }
@@ -212,6 +247,7 @@ Item {
       root.controlValue = ""
       root.controlInput = ""
       root.controlResult = ""
+      if (root.runningControlGeneration !== root.controlGeneration) return
       if (exitCode === 0) {
         root.lastError = ""
         root.controlled(requested, action, value)

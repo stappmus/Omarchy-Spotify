@@ -3,6 +3,7 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui
 
 import "Api.js" as Api
@@ -14,8 +15,8 @@ BarWidget {
 
   readonly property var spotify: bar && bar.shell
     ? bar.shell.serviceFor("quickshell.spotify") : null
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color muted: Color.muted
+  readonly property color foreground: bar ? bar.foreground : Theme.Color.foreground
+  readonly property color muted: Theme.Color.muted
   readonly property string surfaceKey: "spotify-popup-" + String(root)
   readonly property string lyricsRequestKey: surfaceKey + "-lyrics"
   readonly property string barText: spotify
@@ -57,7 +58,7 @@ BarWidget {
     altHeld: root.hintAltHeld
     active: root.shortcutHintsActive
     foreground: root.foreground
-    accent: Color.accent
+    accent: Theme.Color.accent
   }
   readonly property bool opened: popupOpen
   readonly property var miniShortcutRows: spotify && spotify.showLyrics
@@ -189,23 +190,41 @@ BarWidget {
       "Omarchy Music app"))
   }
 
+  // Omarchy 4.0.0.alpha hands third-party widgets a PluginBarApi facade that
+  // omits summonBarWidget/hideBarWidget/isBarWidgetOpen. This instance is
+  // already the focused-monitor widget (Service.shortcutSurface picks it), so
+  // fall back to driving its own popup when those host helpers are missing.
+  readonly property bool barPanelApiAvailable: !!bar
+    && typeof bar.isBarWidgetOpen === "function"
+    && typeof bar.hideBarWidget === "function"
+    && typeof bar.summonBarWidget === "function"
+
+  function miniPlayerShortcutOpen() {
+    return barPanelApiAvailable ? bar.isBarWidgetOpen(moduleName) : popupOpen
+  }
+  function openMiniPlayerShortcut() {
+    if (barPanelApiAvailable) return bar.summonBarWidget(moduleName)
+    open()
+    return popupOpen
+  }
+  function closeMiniPlayerShortcut() {
+    if (barPanelApiAvailable) return bar.hideBarWidget(moduleName)
+    close()
+    return true
+  }
+
   function toggleMiniPlayerShortcut() {
-    if (!bar || typeof bar.isBarWidgetOpen !== "function"
-        || typeof bar.hideBarWidget !== "function"
-        || typeof bar.summonBarWidget !== "function") return "unavailable"
-    if (bar.isBarWidgetOpen(moduleName))
-      return bar.hideBarWidget(moduleName) ? "closed" : "unavailable"
+    if (miniPlayerShortcutOpen())
+      return closeMiniPlayerShortcut() ? "closed" : "unavailable"
     pendingShortcutLatch = true
-    var host = bar.shell
+    var host = bar ? bar.shell : null
     if (host && typeof host.isPluginOpen === "function"
         && host.isPluginOpen(moduleName) && typeof host.hide === "function") {
       host.hide(moduleName)
-      Qt.callLater(function() {
-        if (root.bar) root.bar.summonBarWidget(root.moduleName)
-      })
+      Qt.callLater(function() { root.openMiniPlayerShortcut() })
       return "opened"
     }
-    var opened = bar.summonBarWidget(moduleName)
+    var opened = openMiniPlayerShortcut()
     if (!opened) pendingShortcutLatch = false
     return opened ? "opened" : "unavailable"
   }
@@ -219,10 +238,8 @@ BarWidget {
       host.hide(moduleName)
       return "closed"
     }
-    if (bar && typeof bar.isBarWidgetOpen === "function"
-        && bar.isBarWidgetOpen(moduleName)
-        && typeof bar.hideBarWidget === "function") {
-      bar.hideBarWidget(moduleName)
+    if (miniPlayerShortcutOpen()) {
+      closeMiniPlayerShortcut()
       Qt.callLater(function() {
         if (root.bar && root.bar.shell)
           root.bar.shell.summon(root.moduleName,
@@ -394,7 +411,8 @@ BarWidget {
     }
     else if (action === "volume") toggleMute()
     else if (action === "setup") {
-      if (spotify && !spotify.loginBusy) spotify.login()
+      if (spotify && !spotify.auth.validClientId) openFullPanel({tab: "setup"})
+      else if (spotify && !spotify.loginBusy) spotify.login()
     } else if (action === "setup-cancel") {
       if (spotify) spotify.cancelLogin()
     } else if (action === "open") openFullPanel()
@@ -823,7 +841,7 @@ BarWidget {
           text: root.spotify ? (root.spotify.lastError
             || root.spotify.auth.lastError
             || root.spotify.daemon.lastError) : ""
-          color: Color.urgent
+          color: Theme.Color.urgent
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
@@ -840,7 +858,7 @@ BarWidget {
             foreground: root.foreground
             hasCursor: root.miniCursorActive && root.miniCursor === "setup"
             enabled: root.spotify && !root.spotify.loginBusy
-            onClicked: if (root.spotify) root.spotify.login()
+            onClicked: root.activateMiniAction("setup")
             onHovered: function(on) { if (on) root.setMiniCursor("setup") }
           }
 
@@ -880,8 +898,8 @@ BarWidget {
             anchors.fill: parent
             visible: !root.vinylRecordEnabled
             radius: Style.cornerRadius
-            color: Style.normalFillFor(root.foreground, Color.accent)
-            borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+            color: Style.normalFillFor(root.foreground, Theme.Color.accent)
+            borderSpec: Border.controlSpec("normal", root.foreground, Theme.Color.accent)
 
             RetryImage {
               id: popupArtwork
@@ -912,7 +930,7 @@ BarWidget {
             anchors.fill: parent
             visible: root.vinylRecordEnabled
             radius: width / 2
-            color: Style.normalFillFor(root.foreground, Color.accent)
+            color: Style.normalFillFor(root.foreground, Theme.Color.accent)
             border.width: 1
             border.color: root.foreground
             clip: true
@@ -932,7 +950,7 @@ BarWidget {
               anchors.fill: parent
               anchors.margins: Style.space(3)
               radius: width / 2
-              color: Style.normalFillFor(root.foreground, Color.accent)
+              color: Style.normalFillFor(root.foreground, Theme.Color.accent)
               clip: true
 
               RotationAnimation on rotation {
@@ -972,7 +990,7 @@ BarWidget {
                 width: Math.max(Style.space(8), parent.width * 0.16)
                 height: width
                 radius: width / 2
-                color: Color.background
+                color: Theme.Color.background
                 border.width: 1
                 border.color: Qt.rgba(0, 0, 0, 0.35)
                 visible: popupRecordArtwork.status === Image.Ready
@@ -1027,8 +1045,8 @@ BarWidget {
               iconText: root.spotify && root.spotify.currentTrackSaved
                 ? "󰋑" : "󰋕"
               iconSize: Style.font.body
-              foreground: Color.urgent
-              accent: Color.urgent
+              foreground: Theme.Color.urgent
+              accent: Theme.Color.urgent
               hasCursor: root.miniCursorActive && root.miniCursor === "like"
               enabled: root.spotify && root.spotify.currentTrackSaveAvailable
               horizontalPadding: Style.space(4)
@@ -1072,8 +1090,8 @@ BarWidget {
                 && root.spotify && root.spotify.currentArtistContextAvailable
               color: root.spotify && root.spotify.artist !== ""
                 && root.spotify.currentArtistContextAvailable
-                ? Color.accent : root.muted
-              accent: Color.accent
+                ? Theme.Color.accent : root.muted
+              accent: Theme.Color.accent
               font.family: root.bar ? root.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.bodySmall
               onArtistRequested: function(item) { root.openArtist(item) }
@@ -1117,8 +1135,8 @@ BarWidget {
               fallbackClickable: root.spotify
                 && root.spotify.currentAlbumContextAvailable
               color: root.spotify && root.spotify.currentAlbumContextAvailable
-                ? Color.accent : root.muted
-              accent: Color.accent
+                ? Theme.Color.accent : root.muted
+              accent: Theme.Color.accent
               font.family: root.bar ? root.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.caption
               onFallbackRequested: root.openCurrentAlbum()

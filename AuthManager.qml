@@ -17,24 +17,33 @@ Item {
   height: 0
 
   required property string pluginDir
-  // spotify-player and ncspot use the defaults below for Web API login.
-  // A second internal instance may override them for the streaming-only grant
-  // required by authorization-code Spotify Connect receivers such as Sonos.
-  property string clientId: "d420a117a32841c2b3474932e49fb54b"
-  // A personal Spotify Developer app client ID opts out of the shared
-  // per-app rate-limit bucket. Empty keeps the shipped client above. Only a
-  // 32-hex value is accepted, so a typo can never redirect the OAuth flow or
-  // the keyring entry (both are scoped per client ID).
+  // Web API login requires the user's app. Connect may supply its own identity.
+  property string clientId: ""
   property string customClientId: ""
-  readonly property bool validClientId: customClientId === "" || /^[0-9a-f]{32}$/i.test(customClientId)
+  readonly property bool validClientId: /^[0-9a-f]{32}$/i.test(customClientId || clientId)
   readonly property string resolvedClientId: validClientId
     ? (customClientId ? customClientId.toLowerCase() : clientId) : ""
   property bool initialized: false
   property bool switchingIdentity: false
-  Component.onCompleted: {
-    initialized = true
-    if (!validClientId) changeIdentity()
+  property bool settingsReady: true
+  function identityError() {
+    return !(customClientId || clientId)
+      ? "Set your Spotify Developer app client ID in Settings to sign in."
+      : "Enter a Spotify client ID containing exactly 32 hexadecimal characters."
   }
+  function initializeIdentity() {
+    if (initialized || !settingsReady) return
+    initialized = true
+    if (!validClientId) {
+      sessionChecked = true
+      lastError = identityError()
+      finishWaiters("", lastError)
+      return
+    }
+    restoreSession()
+  }
+  Component.onCompleted: initializeIdentity()
+  onSettingsReadyChanged: initializeIdentity()
   onResolvedClientIdChanged: if (initialized) changeIdentity()
   property int oauthPort: 8989
   property string callbackPath: "/login"
@@ -79,7 +88,8 @@ Item {
     sessionChecked = false
     finishWaiters("", "Spotify application changed. Sign in again.")
     loggedOut()
-    lastError = validClientId ? "" : "Enter a Spotify client ID containing exactly 32 hexadecimal characters."
+    lastError = validClientId ? "" : identityError()
+    if (!validClientId) sessionChecked = true
     identityDrain.restart()
   }
 
@@ -126,6 +136,10 @@ Item {
 
   function withAccessToken(callback) {
     if (typeof callback !== "function") return
+    if (!initialized) {
+      tokenWaiters = tokenWaiters.concat([callback])
+      return
+    }
     if (switchingIdentity || !validClientId) {
       callback("", lastError || "Spotify application is changing. Try again.")
       return
@@ -145,10 +159,10 @@ Item {
   }
 
   function restoreSession() {
-    if (switchingIdentity || !validClientId) return
+    if (!initialized || switchingIdentity || !validClientId) return
     sessionChecked = false
     if (secretLookup.running || refreshBusy) return
-    lookupPurpose = "restore"
+    lookupPurpose = tokenWaiters.length ? "request" : "restore"
     startSecretLookup()
   }
 
@@ -175,7 +189,7 @@ Item {
     if (!token) {
       resetMemorySession()
       sessionChecked = true
-      if (purpose === "request") finishWaiters("", "Log in to Spotify first")
+      finishWaiters("", "Log in to Spotify first")
       return
     }
     refreshWithToken(token, purpose)
@@ -215,8 +229,8 @@ Item {
         root.resetMemorySession()
         root.lastError = root.safeError(result.error)
         if (result.invalidGrant) root.clearStoredToken()
-        if (purpose === "request") root.finishWaiters("", root.lastError)
-        else root.sessionUnavailable(root.lastError)
+        root.finishWaiters("", root.lastError)
+        root.sessionUnavailable(root.lastError)
         return
       }
       root.acceptToken(result)
@@ -265,7 +279,7 @@ Item {
   }
 
   function beginLogin() {
-    if (loginBusy || refreshBusy || switchingIdentity || !validClientId) return
+    if (!initialized || loginBusy || refreshBusy || switchingIdentity || !validClientId) return
     lastError = ""
     loginBusy = true
     callbackHandled = false
@@ -284,11 +298,8 @@ Item {
     pkceVerifier = result.verifier
     pkceChallenge = result.challenge
     oauthState = result.state
-    callbackListener.command = [
-      "socat", "-T", "180",
-      "TCP4-LISTEN:" + OAuth.normalizedPort(oauthPort) + ",bind=127.0.0.1,reuseaddr",
-      "STDIO"
-    ]
+    callbackListener.command = ["python3", pluginDir + "/scripts/oauth-listener.py",
+      String(OAuth.normalizedPort(oauthPort))]
     callbackListener.running = true
     authTimeout.restart()
   }
@@ -369,7 +380,6 @@ Item {
     loginBusy = false
     exchangingCode = false
     authTimeout.stop()
-    authOpenDelay.stop()
     if (!listenerAlreadyAnswered && callbackListener.running) callbackListener.running = false
     clearPkce()
     sessionUnavailable(lastError)
@@ -379,7 +389,6 @@ Item {
     keyringTimeout.stop()
     tokenTimeout.stop()
     authTimeout.stop()
-    authOpenDelay.stop()
     callbackStopTimer.stop()
     if (callbackListener.running) callbackListener.running = false
     if (pkceGenerator.running) pkceGenerator.running = false
@@ -391,6 +400,12 @@ Item {
     exchangingCode = false
     callbackHandled = false
     clearPkce()
+  }
+
+  Timer {
+    interval: 15000
+    running: !root.initialized && root.tokenWaiters.length > 0
+    onTriggered: root.finishWaiters("", "Spotify settings have not loaded. Open Settings and apply your app client ID.")
   }
 
   Timer {
@@ -411,16 +426,11 @@ Item {
     interval: 15000
     onTriggered: {
       root.cancelLogin()
+      root.sessionChecked = true
       root.lastError = "Spotify authorization took too long. Try again."
       root.finishWaiters("", root.lastError)
       root.sessionUnavailable(root.lastError)
     }
-  }
-
-  Timer {
-    id: authOpenDelay
-    interval: 120
-    onTriggered: root.openAuthorizationPage()
   }
 
   Timer {
@@ -452,13 +462,17 @@ Item {
     stdinEnabled: true
     stdout: SplitParser {
       splitMarker: "\n"
-      onRead: function(line) { root.handleCallbackLine(line) }
+      onRead: function(line) {
+        if (line === "READY") root.openAuthorizationPage()
+        else root.handleCallbackLine(line)
+      }
     }
     stderr: StdioCollector { waitForEnd: true }
-    onStarted: authOpenDelay.restart()
     onExited: function(exitCode) {
       if (root.loginBusy && !root.callbackHandled && !root.exchangingCode)
-        root.failLogin(exitCode === 0
+        root.failLogin(exitCode === 21
+          ? "Port " + OAuth.normalizedPort(root.oauthPort) + " is used by another program. Free that port, then try signing in again."
+          : exitCode === 0
           ? "The Spotify sign-in window closed before it finished"
           : "Could not complete Spotify sign-in. Close any other sign-in windows and try again")
     }

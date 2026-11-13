@@ -17,6 +17,22 @@ rg -q AUTH_IDENTITY_PASS "$test_root/output" || {
 }
 echo 'Quickshell authorization integration passed.'
 
+mkdir -p "$test_root/bin"
+printf '#!/bin/sh\nexit 1\n' > "$test_root/bin/secret-tool"
+chmod +x "$test_root/bin/secret-tool"
+sed 's|import "../.." as Plugin|import "." as Plugin|' \
+  "$source_root/tests/integration/AuthStartup.qml" > "$test_root/shell.qml"
+env -u WAYLAND_DISPLAY PATH="$test_root/bin:$PATH" QT_QPA_PLATFORM=offscreen timeout 15s \
+  qs --no-color -p "$test_root" > "$test_root/startup-output" 2>&1 || {
+  cat "$test_root/startup-output"
+  exit 1
+}
+rg -q AUTH_STARTUP_PASS "$test_root/startup-output" || {
+  cat "$test_root/startup-output"
+  exit 1
+}
+echo 'Quickshell startup identity integration passed.'
+
 mkdir -p "$test_root/app/plugin" "$test_root/state"
 cp "$source_root/"*.qml "$source_root/"*.js "$test_root/app/plugin/"
 cp -r /usr/share/omarchy/shell/Commons /usr/share/omarchy/shell/Ui "$test_root/app/"

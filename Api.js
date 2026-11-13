@@ -387,8 +387,7 @@ function remotePlaybackPollShouldRun(loggedIn, loading, uiVisible, useRemote,
 }
 
 function remotePlaybackPollInterval(uiVisible, useRemote, hasLocal) {
-  return uiVisible === true && (useRemote === true || hasLocal !== true)
-    ? 5000 : 15000
+  return 15000
 }
 
 function normalizedShortcutPlayer(value) {
@@ -2190,7 +2189,7 @@ function playbackBody(item, sourceItems, contextUri) {
   // A lone URI creates a one-track Spotify playback context. That makes Next
   // reach the end immediately, so carry the visible list into playback. Start
   // at the clicked row and wrap once; Spotify accepts at most 100 URIs.
-  var values = Array.isArray(sourceItems) ? sourceItems : []
+  var values = arrayValues(sourceItems)
   var start = -1
   // Prefer the exact row object so a playlist containing the same track more
   // than once starts from the occurrence the user actually selected.

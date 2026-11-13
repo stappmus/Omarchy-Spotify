@@ -3,7 +3,7 @@ import Quickshell
 import "../.." as Plugin
 
 ShellRoot {
-  Plugin.AuthManager { id: auth; pluginDir: "/nonexistent" }
+  Plugin.AuthManager { id: auth; pluginDir: "/nonexistent"; clientId: "11111111111111111111111111111111"; settingsReady: false }
   function check(condition, message) {
     if (!condition) throw new Error(message)
   }
@@ -11,6 +11,13 @@ ShellRoot {
     interval: 1
     running: true
     onTriggered: {
+    var queued = false
+    auth.withAccessToken(function() { queued = true })
+    check(!queued && !auth.initialized, "Token request bypassed settings gate")
+    auth.customClientId = "invalid"
+    auth.settingsReady = true
+    check(queued && auth.sessionChecked, "Invalid startup did not settle waiters")
+    auth.customClientId = "11111111111111111111111111111111"
     auth.accessToken = "old"
     auth.accessTokenExpiresAt = Date.now() + 3600000
     auth.loggedIn = true

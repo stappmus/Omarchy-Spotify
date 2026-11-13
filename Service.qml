@@ -22,8 +22,11 @@ Item {
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "quickshell.spotify"
-  readonly property string pluginDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) : ""
+  readonly property string pluginDir: {
+    var url = String(Qt.resolvedUrl("./"))
+    return url.indexOf("file://") === 0
+      ? decodeURIComponent(url.slice(7)).replace(/\/$/, "") : ""
+  }
   readonly property string homeDirectory: Quickshell.env("HOME") || ""
   readonly property string stateHome: {
     var explicit = String(Quickshell.env("XDG_STATE_HOME") || "").trim()
@@ -53,6 +56,7 @@ Item {
     clientId: ""
   })
   property var settings: Api.shallowCopy(defaultSettingValues)
+  property bool settingsReady: false
 
   readonly property string deviceName: String(settings.deviceName || "Omarchy Spotify").trim() || "Omarchy Spotify"
   readonly property int idleShutdownMinutes: Math.max(0, Math.min(1440,
@@ -112,6 +116,7 @@ Item {
   property var remotePlaybackWaiters: []
   property var rememberedRemoteVolumeDevice: null
   property real rememberedRemoteVolumePercent: -1
+  property double rememberedRemoteVolumeAt: 0
   property var pendingRemoteSeek: null
   property var pendingRemoteVolume: null
   property real pendingSliderVolume: -1
@@ -140,14 +145,16 @@ Item {
   readonly property bool lyricsAvailable: showLyrics && currentLyricsSong !== null
   readonly property string lyricsPluginId: "stappmus.lyrics"
   readonly property string lyricsPluginUrl: "https://github.com/stappmus/Omasing.git"
+  property string lyricsHostState: ""
   readonly property string lyricsPluginAvailability: {
+    if (lyricsHostState) return lyricsHostState
     var plugins = pluginRegistry && pluginRegistry.installedPlugins
       ? pluginRegistry.installedPlugins : ({})
-    var installed = !!plugins[lyricsPluginId]
-    var enabled = installed && pluginRegistry
-      && typeof pluginRegistry.inBar === "function"
-      && pluginRegistry.inBar(lyricsPluginId)
-    return Api.optionalPluginState(installed, enabled)
+    return Api.optionalPluginState(!!plugins[lyricsPluginId], !!plugins[lyricsPluginId]
+      && typeof pluginRegistry.inBar === "function" && pluginRegistry.inBar(lyricsPluginId))
+  }
+  function refreshLyricsHostState() {
+    if (!lyricsHostCheck.running) lyricsHostCheck.running = true
   }
   property bool lyricsPluginBusy: false
   property string lyricsPluginOperation: ""
@@ -475,6 +482,8 @@ Item {
     if (daemonManager.setupBusy) return "Preparing playback on this computer"
     if (daemonManager.credentialsClearBusy) return "Signing out"
     if (authManager.loginBusy) return "Approve Spotify access in your browser"
+    if (!settingsReady) return "Waiting for Spotify settings"
+    if (!authManager.validClientId) return authManager.identityError()
     if (authManager.sessionBusy || !authManager.sessionChecked)
       return "Checking your saved Spotify session"
     if (!daemonManager.requirementsChecked || !daemonManager.credentialsChecked)
@@ -527,7 +536,7 @@ Item {
     next.audioQuality = quality.indexOf("96") === 0 ? "96 kbps"
       : (quality.indexOf("160") === 0 ? "160 kbps" : "320 kbps")
     // A personal Spotify client ID opts out of the shared rate-limit bucket.
-    // Anything that is not a 32-hex ID (including empty) means "keep shipped".
+    // Preserve invalid input so authentication can explain how to correct it.
     var customClientId = String(next.clientId || "").trim()
     next.clientId = customClientId.toLowerCase()
     return next
@@ -554,6 +563,9 @@ Item {
   }
 
   function applySettings(values) {
+    // Empty pushes from newly constructed monitor widgets are not resets.
+    // An authoritative layout entry (including id-only defaults) is accepted.
+    if (!values || Object.keys(values).length === 0) return
     var previousDeviceName = deviceName
     var next = normalizedSettings(values)
     if (JSON.stringify(next) !== JSON.stringify(settings)) settings = next
@@ -568,6 +580,7 @@ Item {
   function persistSettings(values) {
     var next = normalizedSettings(Api.assign(Api.shallowCopy(settings), values))
     applySettings(next)
+    settingsReady = true
     if (shell && typeof shell.updateEntryInline === "function")
       shell.updateEntryInline(pluginId, next)
   }
@@ -648,13 +661,14 @@ Item {
   }
 
   function configuredEntry() {
-    var config = shell && shell.shellConfig ? shell.shellConfig : null
+    var config = shell && shell.shellConfig ? shell.shellConfig
+      : (shell && shell.barConfig ? { bar: shell.barConfig } : null)
     if (!config) return null
     var layout = config.bar && config.bar.layout ? config.bar.layout : null
-    var sections = ["left", "center", "right"]
+    var sections = layout ? Object.keys(layout) : []
     if (layout) {
       for (var s = 0; s < sections.length; s++) {
-        var rows = Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
+        var rows = Api.arrayValues(layout[sections[s]])
         for (var i = 0; i < rows.length; i++)
           if (rows[i] && String(rows[i].id || "") === pluginId) return rows[i]
       }
@@ -666,7 +680,11 @@ Item {
   }
 
   function syncSettings() {
-    applySettings(configuredEntry() || {})
+    var entry = configuredEntry()
+    if (entry) {
+      applySettings(entry)
+      settingsReady = true
+    }
     reconcileSessionPersistence()
     resumeLyricsInstallIntent()
   }
@@ -838,6 +856,7 @@ Item {
   }
 
   function finishLyricsPluginInstallWatch() {
+    refreshLyricsHostState()
     if (lyricsPluginAvailability === "ready") {
       lyricsPluginBusy = false
       lyricsPluginError = ""
@@ -988,9 +1007,13 @@ Item {
       + "|" + String(item.type || "").trim().toLowerCase()
   }
 
-  function rememberRemoteVolume(device, value) {
+  function rememberRemoteVolume(device, value, observedAt) {
     var volumePercent = Api.normalizeVolumePercent(value)
     if (!device || volumePercent === null) return false
+    var timestamp = observedAt === undefined ? Date.now() : Number(observedAt)
+    if (rememberedRemoteVolumeDevice && Api.playbackDevicesMatch(rememberedRemoteVolumeDevice, device)
+        && timestamp < rememberedRemoteVolumeAt) return false
+    rememberedRemoteVolumeAt = timestamp
     rememberedRemoteVolumePercent = volumePercent
     rememberedRemoteVolumeDevice = {
       id: String(device.id || ""),
@@ -1017,7 +1040,7 @@ Item {
     var receiver = findDiscoveredReceiver(device)
     if (!receiver || String(receiver.brand || "").toLowerCase() !== "sonos")
       return false
-    return rememberRemoteVolume(device, receiver.volumePercent)
+    return rememberRemoteVolume(device, receiver.volumePercent, receiver.volumeObservedAt || 0)
   }
 
   function remoteControlDeviceSnapshot(device) {
@@ -1164,8 +1187,12 @@ Item {
         localRuntimeDeviceName = device.name
       }
       reconcilePendingRemoteControls(state)
-      if (!rememberDiscoveredReceiverVolume(device))
-        rememberRemoteVolume(device, device.volumePercent)
+      if (!device.restricted && rememberRemoteVolume(device, device.volumePercent)) {
+        // Fresh API state outranks discovery for unrestricted receivers.
+      } else if (!rememberedRemoteVolumeDevice
+          || !Api.playbackDevicesMatch(rememberedRemoteVolumeDevice, device)) {
+        rememberDiscoveredReceiverVolume(device)
+      }
     }
     remotePlayback = state
     verifyRadioPlaybackContext()
@@ -2544,10 +2571,12 @@ Item {
     var current = remoteDevice && remoteDevice.active === true ? remoteDevice : null
     var currentVolume = Api.normalizeVolumePercent(
       current ? current.volumePercent : null)
-    var localVolumePreferred = current
-      ? rememberDiscoveredReceiverVolume(current) : false
-    if (current && !localVolumePreferred && currentVolume !== null)
-      rememberRemoteVolume(current, currentVolume)
+    // Merging old discovery data must never overwrite a newer volume.
+    if (current && (!rememberedRemoteVolumeDevice
+        || !Api.playbackDevicesMatch(rememberedRemoteVolumeDevice, current))) {
+      if (!rememberDiscoveredReceiverVolume(current) && currentVolume !== null)
+        rememberRemoteVolume(current, currentVolume)
+    }
     var currentMatched = false
     var localById = ({})
     for (var i = 0; i < local.length; i++) localById[String(local[i].id || "")] = local[i]
@@ -2857,6 +2886,8 @@ Item {
     var device = deviceForId(id)
     if (!device) return
     if (!device.id || (device.restricted && !device.activationRequired)) return
+    spotifyConnectManager.discardQueuedControls()
+    playbackFollowUpTimer.stop()
     selectedDeviceId = device.id
     selectedDeviceExplicit = true
     noteActivity()
@@ -3243,13 +3274,15 @@ Item {
 
   function sendSonosControl(action, value) {
     if (!sonosControlAvailable || !sonosControlDevice.id) return false
-    if (!spotifyConnectManager.controlling)
-      spotifyConnectManager.control(sonosControlDevice.id, action, value)
+    if (!spotifyConnectManager.control(sonosControlDevice.id, action, value))
+      fail("The speaker command could not be queued. Try again.")
+    // This receiver owns the command even if rejected: do not send it again
+    // through the Web API to an unrelated active device.
     return true
   }
 
   function sonosPlayMode(nextRepeat, nextShuffle) {
-    if (nextRepeat === "track") return "REPEAT_ONE"
+    if (nextRepeat === "track") return nextShuffle ? "SHUFFLE_REPEAT_ONE" : "REPEAT_ONE"
     if (nextShuffle) return nextRepeat === "context" ? "SHUFFLE" : "SHUFFLE_NOREPEAT"
     return nextRepeat === "context" ? "REPEAT_ALL" : "NORMAL"
   }
@@ -3274,9 +3307,10 @@ Item {
           nextDevice.volumePercent)
     } else if (action === "mode") {
       var mode = String(value || "").toUpperCase()
-      nextState.repeatMode = mode === "REPEAT_ONE" ? "track"
+      nextState.repeatMode = (mode === "REPEAT_ONE" || mode === "SHUFFLE_REPEAT_ONE") ? "track"
         : (mode === "REPEAT_ALL" || mode === "SHUFFLE" ? "context" : "off")
       nextState.shuffle = mode === "SHUFFLE" || mode === "SHUFFLE_NOREPEAT"
+        || mode === "SHUFFLE_REPEAT_ONE"
     }
     remotePlayback = nextState
     playbackPositionTick++
@@ -3351,8 +3385,11 @@ Item {
   }
 
   function remotePlayerAction(method, path, query) {
-    apiAction(method, path, query, null, "",
-      function(ok) { if (ok) root.loadPlaybackState() })
+    apiAction(method, path, query, null, "", function(ok) {
+      if (!ok) return
+      root.loadPlaybackState()
+      playbackFollowUpTimer.restart()
+    })
   }
 
   function seekSeconds(seconds) {
@@ -3536,6 +3573,10 @@ Item {
   }
 
   function login() {
+    if (!authManager.validClientId) {
+      fail(authManager.identityError())
+      return
+    }
     if (authManager.loginBusy || authManager.sessionBusy
         || daemonManager.setupBusy || daemonManager.authenticationBusy) return
     noteActivity()
@@ -3745,6 +3786,7 @@ Item {
   onShellChanged: settingsSync.restart()
   onUiVisibleChanged: {
     if (uiVisible) {
+      refreshLyricsHostState()
       ensureVisibleLocalReceiver()
       syncCurrentTrackSaved(true)
       updateSleepCountdown()
@@ -3759,6 +3801,7 @@ Item {
   Component.onCompleted: {
     ensureStateDir.running = true
     settingsSync.start()
+    refreshLyricsHostState()
     daemonManager.refreshStatus()
   }
 
@@ -3766,6 +3809,7 @@ Item {
     target: root.shell
     ignoreUnknownSignals: true
     function onShellConfigChanged() { root.syncSettings() }
+    function onBarConfigChanged() { root.syncSettings() }
   }
 
   Connections {
@@ -3783,6 +3827,8 @@ Item {
       if (root.localActivationRequested) deviceProbeTimer.restart()
     }
     function onLoggedOut() {
+      spotifyConnectManager.discardQueuedControls()
+      playbackFollowUpTimer.stop()
       spotifyApi.cancelAll()
       root.clearData()
     }
@@ -3831,6 +3877,7 @@ Item {
   Connections {
     target: spotifyConnectManager
     function onRefreshed() {
+      if (root.remoteDevice) root.rememberDiscoveredReceiverVolume(root.remoteDevice)
       var error = root.pendingDeviceLoadError
       root.pendingDeviceLoadError = ""
       root.finishDeviceLoad(null, error)
@@ -3866,6 +3913,7 @@ Item {
         connectActivationTimer.restart()
         return
       }
+      if (!root.sonosControlDevice || root.sonosControlDevice.id !== deviceId) return
       root.applySonosControlResult(action, value)
       root.reconcilePendingRemoteControls(root.remotePlayback)
       sonosControlRefreshTimer.restart()
@@ -3914,6 +3962,16 @@ Item {
   }
 
   Timer {
+    interval: 3000
+    running: !root.settingsReady
+    onTriggered: {
+      root.auth.sessionChecked = true
+      root.auth.lastError = "Spotify settings are unavailable. Open Settings and apply your app client ID."
+      root.auth.finishWaiters("", root.auth.lastError)
+    }
+  }
+
+  Timer {
     id: settingsSync
     interval: 0
     onTriggered: root.syncSettings()
@@ -3945,10 +4003,32 @@ Item {
   }
 
   Process {
+    id: lyricsHostCheck
+    command: ["timeout", "5", "omarchy", "plugin", "list", "--json"]
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) {
+      if (!root || code !== 0) return
+      var entries = Api.parseJson(stdout.text, null)
+      if (!Array.isArray(entries)) return
+      var match = entries.find(function(item) { return item.id === root.lyricsPluginId })
+      root.lyricsHostState = Api.optionalPluginState(!!match, !!match && match.enabled === true)
+    }
+  }
+
+  Timer {
+    interval: 15000
+    repeat: true
+    running: root.uiVisible && root.sonosControlAvailable && !spotifyConnectManager.loading
+    onTriggered: spotifyConnectManager.refresh()
+  }
+
+  Process {
     id: ensureStateDir
     running: false
     command: ["/usr/bin/mkdir", "-p", root.stateDir]
     onExited: {
+      if (!root) return
       if (!root.sessionFileReady) sessionFile.reload()
       else if (root.sessionFileDirty) root.flushSessionFile()
     }
@@ -4024,6 +4104,13 @@ Item {
     interval: 750
     repeat: false
     onTriggered: root.refreshActivatedConnectDevice()
+  }
+
+  Timer {
+    id: playbackFollowUpTimer
+    interval: 2000
+    onTriggered: if (root.auth.loggedIn && !root.remotePlaybackLoading)
+      root.loadPlaybackState()
   }
 
   Timer {
@@ -4140,6 +4227,7 @@ Item {
     id: authManager
     pluginDir: root.pluginDir
     customClientId: settings.clientId
+    settingsReady: root.settingsReady
   }
 
   AuthManager {

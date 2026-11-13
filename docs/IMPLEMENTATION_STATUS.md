@@ -118,3 +118,23 @@ for partial fixes. No issue was closed and no PR was marked merged.
 The first GitHub validation run exposed a missing Qt tools PATH entry in the
 container; the workflow now adds `/usr/lib/qt6/bin`. Validation is being rerun.
 No version tag or attested release has been published yet.
+
+## Reliability release candidate 13 November 2026
+
+The current candidate fixes public-host directory/settings lookup, initial
+identity restoration, missing-client onboarding, callback listener readiness,
+Qt 6.12 theme-name resolution, mini-player shortcuts, Omasing state lookup,
+QML collection playback and Sonos scheduling/mode/volume reconciliation.
+Remote polling is 15 seconds and release verification failures are distinct.
+
+Local validation: 23 Rust tests plus formatting/Clippy, 189 QML tests, 19 Connect
+helper tests, 2 real-socket OAuth tests, installer tests and Quickshell identity,
+startup and actual Panel/BarWidget smoke tests passed. The smoke host provides
+only public barConfig and a sanitized manifest. Sonos queue/mode/freshness tests
+exercise the actual components with isolated state, not physical speakers.
+
+Remaining acceptance: live Spotify authorization and saved-token exchange,
+physical multi-monitor behavior, Sonos/grouped receiver hardware and Bluetooth
+multipoint. Native port-8000 OAuth, typed upstream account errors, exact reconnect
+queue restoration and optional features remain tracked separately. No claim of
+lossless support or a Spotify-side audio-key fix is made.

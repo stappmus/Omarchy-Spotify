@@ -6,6 +6,14 @@ import "../Api.js" as Api
 TestCase {
   name: "SpotifyApiLogic"
 
+  function test_playbackBodyAcceptsQmlSequence() {
+    var first = { uri: "spotify:track:first", type: "track", kind: "item" }
+    var second = { uri: "spotify:track:second", type: "track", kind: "item" }
+    var sequence = { 0: first, 1: second, length: 2 }
+    var body = Api.playbackBody(second, sequence, "")
+    compare(body.uris, [second.uri, first.uri])
+  }
+
   function test_queryString_isStableAndEncoded() {
     compare(Api.queryString({ z: "last", q: "AC/DC & friends", empty: "" }),
       "q=AC%2FDC%20%26%20friends&z=last")
@@ -1128,7 +1136,7 @@ TestCase {
     verify(!Api.remotePlaybackPollShouldRun(true, false, false, false, true))
     verify(!Api.remotePlaybackPollShouldRun(true, true, true, true, true))
     verify(!Api.remotePlaybackPollShouldRun(false, false, true, true, true))
-    compare(Api.remotePlaybackPollInterval(true, true, false), 5000)
+    compare(Api.remotePlaybackPollInterval(true, true, false), 15000)
     compare(Api.remotePlaybackPollInterval(true, false, true), 15000)
     compare(Api.remotePlaybackPollInterval(false, true, false), 15000)
   }

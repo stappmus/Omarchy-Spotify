@@ -217,7 +217,7 @@
         "type": "string",
         "label": "Spotify Developer app client ID",
         "defaultValue": "",
-        "description": "Optional personal Spotify Developer app client ID, with its own quota. Empty keeps the plugin's client. A valid 32-hex ID is required. Changing it clears the current session and requires authorization for your app."
+        "description": "Your personal Spotify Developer app client ID is required for account sign-in. A valid 32-hex ID is required. Changing it clears the current session and requires authorization for your app."
       }
     ]
   }

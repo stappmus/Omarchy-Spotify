@@ -144,25 +144,27 @@ still match that tagged source. If verification is unavailable, setup builds
 the locked Rust source locally or offers Omarchy's packaged `spotifyd` fallback
 instead of executing an unverified download.
 
-## Seeing "Spotify is busy." or slow searches?
+## Create your Spotify Developer app
 
-The plugin's Spotify Web API client ID is shared by every install worldwide,
-and Spotify rate-limits requests **per app**, not per user. When that shared
-quota runs out you see `Spotify is busy. Try again in N seconds.` and searches
-that stall even though nothing is wrong on your side.
+Account sign-in requires your own [Spotify Developer app](https://developer.spotify.com/dashboard).
+The previously shipped shared client is no longer supported. Local playback
+has a separate authorization step.
 
-You can use a personal [Spotify Developer app](https://developer.spotify.com/dashboard)
-with a separate quota. This does not provide unlimited requests or restore restricted endpoints.
+1. Create an app and select Web API. Register `http://127.0.0.1:8989/login`
+   exactly, with no trailing slash and `127.0.0.1` rather than `localhost`.
+2. Add your Spotify account under **User Management**.
+3. In the player's Settings, enter the app's 32-character client ID and choose
+   **Apply app**, then continue with Spotify sign-in. Never enter a client secret.
+4. Finish local playback authorization when prompted.
 
-1. Add `http://127.0.0.1:8989/login` as the app's redirect URI.
-2. Set **Spotify Developer app client ID** in the plugin settings. Leave it empty
-   to use the shipped app. Invalid IDs produce an error.
-3. Authorize the selected app. Changing the ID clears the current session and
-   account data; stored sessions are isolated by client ID.
+Development apps require a Premium owner and allowlisted users and have endpoint
+and quota restrictions. A personal app does not provide unlimited requests.
+See Spotify's [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
+If Spotify is busy, wait for the displayed cooldown before retrying.
 
-Development apps require an eligible Premium owner and allowlisted users, and
-have endpoint restrictions. See Spotify's [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
-The local Connect authorization remains separate.
+Changing the ID clears in-memory account data and selects a separate keyring
+session. Existing saved sessions are isolated by client ID. After upgrading,
+restart the Omarchy shell so retained plugin services load the new code.
 
 ## Remove it completely
 

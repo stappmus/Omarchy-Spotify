@@ -103,14 +103,20 @@ download_verified_release() {
   [[ $checksum_line =~ ^[0-9a-f]{64}$ ]] || return 1
   actual_hash=$(sha256sum -- "$download_dir/$release_asset") || return 1
   expected_hash=${actual_hash%% *}
-  [[ $expected_hash == "$checksum_line" ]] || return 1
+  [[ $expected_hash == "$checksum_line" ]] || {
+    echo "Release checksum did not match for $release_asset; discarding download." >&2
+    return 2
+  }
 
   GH_PROMPT_DISABLED=1 gh attestation verify "$download_dir/$release_asset" \
     --repo "$repository" \
     --cert-identity "$workflow_identity@$expected_ref" \
     --source-ref "$expected_ref" \
     --source-digest "$verified_commit" \
-    --deny-self-hosted-runners >/dev/null 2>&1 || return 1
+    --deny-self-hosted-runners >/dev/null 2>&1 || {
+    echo "Release attestation could not be verified for $release_asset; discarding download." >&2
+    return 2
+  }
 
   verified_release="$download_dir/$release_asset"
 }
@@ -120,8 +126,14 @@ if [[ ${OMARCHY_SPOTIFY_BUILD_FROM_SOURCE:-0} != 1 ]]; then
     install_backend "$verified_release" "attested-release:$verified_commit"
     printf 'Installed verified playback backend: %s\n' "$destination"
     exit 0
+  else
+    verification_status=$?
   fi
-  echo "Verified playback release unavailable; trying a locked source build." >&2
+  if (( verification_status == 2 )); then
+    echo "Downloaded release was not verified; trying a locked source build. No downloaded executable was run." >&2
+  else
+    echo "Verified playback release unavailable; trying a locked source build." >&2
+  fi
 fi
 
 command -v cargo >/dev/null 2>&1 || {

@@ -96,8 +96,10 @@ from reloading the plugin — and killing the build — mid-setup. A stale
 
 ## Authentication
 
-Web API access uses Spotify's Authorization Code with PKCE flow and the public
-application identity also used by `spotify-player` and ncspot. The fixed callback
+Web API access uses Spotify's Authorization Code with PKCE flow and a required
+personal Developer app identity. Settings load before session restoration;
+Web API and streaming grants remain isolated. The callback listener retains its
+loopback socket before signalling that the browser may open. The fixed callback
 is `http://127.0.0.1:8989/login`. The playback backend performs its independent
 browser authorization on loopback port `8000`. Receivers that advertise the
 `accesstoken` or `authorization_code` token type use a separate, on-demand,

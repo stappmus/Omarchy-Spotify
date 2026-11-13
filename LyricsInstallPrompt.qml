@@ -1,14 +1,15 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui
 
 Item {
   id: root
 
   property var service: null
-  property color foreground: Color.foreground
-  property color muted: Color.muted
-  property color urgent: Color.urgent
+  property color foreground: Theme.Color.foreground
+  property color muted: Theme.Color.muted
+  property color urgent: Theme.Color.urgent
   property string surfaceKey: ""
   property bool cancelHasCursor: false
   property bool confirmHasCursor: false
