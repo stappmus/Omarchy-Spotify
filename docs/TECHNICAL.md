@@ -150,6 +150,17 @@ as Sonos receive a receiver-scoped code exchanged from that grant.
 It then waits for Spotify to report the genuine device before transferring
 playback when needed. It never asks for or stores the user's password.
 
+The backend can also advertise itself on the LAN. With `disable_discovery =
+false` in `spotifyd.conf` it publishes `_spotify-connect._tcp` through Avahi and
+accepts ZeroConf logins on `zeroconf_port` (0 picks a free port). Without it,
+the receiver is reachable only through the signed-in account. A ZeroConf login
+from the account already playing is ignored. A login from another account
+switches playback to that guest without a credential cache, so guest
+credentials are never written to disk, and the owner's account signs back in
+after ten minutes without playback. The native session behind library and
+search is separate and stays on the owner's account throughout. If Avahi is
+unavailable, discovery is logged as unavailable and playback continues.
+
 An album or playlist in its unfiltered Original order starts Spotify's native
 context, preserving the complete server-side collection. Sorting or filtering
 switches row, context-menu, and collection-level playback to the displayed URI

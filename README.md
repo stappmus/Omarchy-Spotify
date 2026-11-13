@@ -162,6 +162,11 @@ Account-wide listening history/top rankings, related artists and audiobooks are
 not currently implemented in the native backend. Unsupported requests return an
 explicit error rather than pretending the account has no items.
 
+To let phones on your network find this computer, including guests signed in to
+their own Spotify account, set `disable_discovery = false` and a fixed
+`zeroconf_port` in `~/.config/omarchy-spotify/spotifyd.conf`, allow that TCP
+port from your LAN in the firewall, and make sure `avahi-daemon` is running.
+
 After upgrading, restart the Omarchy shell so retained plugin services load the
 new code.
 
