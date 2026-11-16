@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use futures_util::StreamExt;
 use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
 use librespot_core::{
     SpotifyUri,
@@ -14,6 +15,7 @@ use librespot_core::{
     config::{DeviceType, SessionConfig},
     session::Session,
 };
+use librespot_discovery::Discovery;
 use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::{
     audio_backend,
@@ -34,6 +36,12 @@ const INITIAL_VOLUME: u16 = ((u16::MAX as u32 * 90) / 100) as u16;
 const ENGINE_QUEUE_CAPACITY: usize = 64;
 const RECONNECT_LIMIT: usize = 5;
 const RECONNECT_WINDOW: Duration = Duration::from_secs(10 * 60);
+// A guest who connected over zeroconf with another Spotify account holds the
+// receiver only while using it; after this long without playback the owner's
+// account signs back in so the device reappears for it everywhere.
+const GUEST_IDLE_REVERT: Duration = Duration::from_secs(10 * 60);
+const GUEST_IDLE_CHECK: Duration = Duration::from_secs(30);
+const DISCOVERY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const AUDIO_KEY_UNAVAILABLE_CODE: &str = "audio_key_unavailable";
 const AUDIO_KEY_UNAVAILABLE_MESSAGE: &str = "Spotify did not provide the audio key required to play this track on this computer. Try another Spotify Connect device.";
 
@@ -73,6 +81,11 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
         ..SessionConfig::default()
     };
     session_config.tmp_dir = std::env::temp_dir();
+    let discovery = if config.discovery {
+        launch_discovery(&config, &session_config)
+    } else {
+        None
+    };
 
     let mut player_config = PlayerConfig {
         bitrate: config.bitrate,
@@ -141,6 +154,7 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
             runtime_cache,
             connect_config,
             credentials,
+            discovery,
             player,
             mixer,
             session,
@@ -166,7 +180,8 @@ async fn supervise_sessions(
     session_config: SessionConfig,
     runtime_cache: Cache,
     connect_config: ConnectConfig,
-    credentials: Credentials,
+    owner_credentials: Credentials,
+    mut discovery: Option<Discovery>,
     player: Arc<Player>,
     mixer: Arc<dyn mixer::Mixer>,
     mut session: Session,
@@ -177,6 +192,15 @@ async fn supervise_sessions(
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let mut reconnects = VecDeque::new();
+    let mut credentials = owner_credentials.clone();
+    // A guest is a different Spotify account that picked this receiver over
+    // zeroconf. Guest sessions get no cache, so their credentials are never
+    // written next to the owner's.
+    let mut guest = false;
+    let mut guest_idle_since: Option<Instant> = None;
+    let mut switching = false;
+    let mut guest_check = tokio::time::interval(GUEST_IDLE_CHECK);
+    guest_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
@@ -186,8 +210,49 @@ async fn supervise_sessions(
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     let _ = spirc.shutdown();
+                    stop_discovery(discovery.take()).await;
                     return Ok(());
                 }
+                continue;
+            }
+            offered = next_discovery(&mut discovery), if discovery.is_some() => {
+                let Some(offered) = offered else {
+                    log::warn!("zeroconf discovery stopped; this computer stays reachable through the Spotify account");
+                    discovery = None;
+                    continue;
+                };
+                let current_user = session.username();
+                if offered.username.as_deref() == Some(current_user.as_str()) {
+                    log::info!("zeroconf login for the account already signed in; keeping the session");
+                    continue;
+                }
+                guest = offered.username.is_none()
+                    || offered.username != owner_credentials.username;
+                log::info!(
+                    "zeroconf login from {}; switching the Spotify session",
+                    if guest { "another account" } else { "the owner account" }
+                );
+                credentials = offered;
+                guest_idle_since = None;
+                switching = true;
+                let _ = spirc.shutdown();
+                continue;
+            }
+            _ = guest_check.tick(), if guest && !switching => {
+                if state.with(|current| current.playback == PlaybackStatus::Playing) {
+                    guest_idle_since = None;
+                    continue;
+                }
+                let idle_since = *guest_idle_since.get_or_insert_with(Instant::now);
+                if idle_since.elapsed() < GUEST_IDLE_REVERT {
+                    continue;
+                }
+                log::info!("guest session idle; signing the owner account back in");
+                credentials = owner_credentials.clone();
+                guest = false;
+                guest_idle_since = None;
+                switching = true;
+                let _ = spirc.shutdown();
                 continue;
             }
         }
@@ -200,16 +265,22 @@ async fn supervise_sessions(
             true
         });
 
-        let now = Instant::now();
-        if !record_reconnect(&mut reconnects, now) {
-            return Err(crate::failure::Failure::ReconnectExhausted.into());
+        if switching {
+            switching = false;
+        } else {
+            let now = Instant::now();
+            if !record_reconnect(&mut reconnects, now) {
+                stop_discovery(discovery.take()).await;
+                return Err(crate::failure::Failure::ReconnectExhausted.into());
+            }
+            log::warn!("librespot session ended; reconnecting");
         }
-        log::warn!("librespot session ended; reconnecting");
 
         if !session.is_invalid() {
             session.shutdown();
         }
-        session = Session::new(session_config.clone(), Some(runtime_cache.clone()));
+        let session_cache = (!guest).then(|| runtime_cache.clone());
+        session = Session::new(session_config.clone(), session_cache);
         player.set_session(session.clone());
         let reconnect = Spirc::new(
             connect_config.clone(),
@@ -225,6 +296,7 @@ async fn supervise_sessions(
             }
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
+                    stop_discovery(discovery.take()).await;
                     return Ok(());
                 }
                 continue;
@@ -241,6 +313,44 @@ async fn supervise_sessions(
             true
         });
         log::info!("reconnected the librespot session");
+    }
+}
+
+fn launch_discovery(config: &BackendConfig, session_config: &SessionConfig) -> Option<Discovery> {
+    match Discovery::builder(
+        session_config.device_id.clone(),
+        session_config.client_id.clone(),
+    )
+    .name(config.device_name.clone())
+    .device_type(DeviceType::Computer)
+    .port(config.zeroconf_port)
+    .launch()
+    {
+        Ok(discovery) => {
+            log::info!(
+                "advertising {:?} on the local network over zeroconf (port {})",
+                config.device_name,
+                config.zeroconf_port
+            );
+            Some(discovery)
+        }
+        Err(error) => {
+            log::warn!("zeroconf discovery unavailable: {error}");
+            None
+        }
+    }
+}
+
+async fn next_discovery(discovery: &mut Option<Discovery>) -> Option<Credentials> {
+    match discovery.as_mut() {
+        Some(discovery) => discovery.next().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn stop_discovery(discovery: Option<Discovery>) {
+    if let Some(discovery) = discovery {
+        let _ = tokio::time::timeout(DISCOVERY_SHUTDOWN_TIMEOUT, discovery.shutdown()).await;
     }
 }
 

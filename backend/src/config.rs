@@ -20,6 +20,8 @@ struct GlobalConfig {
     no_audio_cache: Option<bool>,
     max_cache_size: Option<u64>,
     cache_path: Option<PathBuf>,
+    disable_discovery: Option<bool>,
+    zeroconf_port: Option<u16>,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +35,11 @@ pub struct BackendConfig {
     pub max_cache_size: Option<u64>,
     pub cache_root: PathBuf,
     pub credentials_root: PathBuf,
+    /// Advertise this receiver on the LAN over zeroconf (spotifyd semantics:
+    /// on unless `disable_discovery = true`).
+    pub discovery: bool,
+    /// TCP port for the zeroconf login endpoint; 0 picks a free port.
+    pub zeroconf_port: u16,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,6 +51,8 @@ pub struct ConfigSummary<'a> {
     pub max_cache_size: Option<u64>,
     pub cache_root: &'a std::path::Path,
     pub credentials_root: &'a std::path::Path,
+    pub discovery: bool,
+    pub zeroconf_port: u16,
 }
 
 impl BackendConfig {
@@ -91,6 +100,8 @@ impl BackendConfig {
             max_cache_size: global.max_cache_size.or(Some(1_000_000_000)),
             cache_root,
             credentials_root,
+            discovery: !global.disable_discovery.unwrap_or(false),
+            zeroconf_port: global.zeroconf_port.unwrap_or(0),
         })
     }
 
@@ -103,6 +114,8 @@ impl BackendConfig {
             max_cache_size: self.max_cache_size,
             cache_root: &self.cache_root,
             credentials_root: &self.credentials_root,
+            discovery: self.discovery,
+            zeroconf_port: self.zeroconf_port,
         }
     }
 }
@@ -179,6 +192,29 @@ mod tests {
         assert_eq!(config.bitrate_kbps, 320);
         assert!(config.audio_cache);
         assert_eq!(config.max_cache_size, Some(42));
+        assert!(config.discovery);
+        assert_eq!(config.zeroconf_port, 0);
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn reads_discovery_settings() {
+        let dir = std::env::temp_dir().join(format!(
+            "omarchy-spotify-discovery-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("spotifyd.conf");
+        fs::write(
+            &path,
+            "[global]\ndisable_discovery = true\nzeroconf_port = 5354\n",
+        )
+        .unwrap();
+
+        let config = BackendConfig::load(&path).unwrap();
+        assert!(!config.discovery);
+        assert_eq!(config.zeroconf_port, 5354);
         fs::remove_file(path).unwrap();
         fs::remove_dir(dir).unwrap();
     }
