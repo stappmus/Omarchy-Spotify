@@ -566,7 +566,7 @@ function shouldRememberVolume(value) {
 }
 
 function unmuteVolume(previous) {
-  return Math.max(UNMUTE_FLOOR, Number(previous) || 0)
+  return shouldRememberVolume(previous) ? clampUnit(previous) : UNMUTE_FLOOR
 }
 
 function seekPosition(position, delta, length) {
@@ -1776,9 +1776,22 @@ function normalizedArtists(artists, imageWidth) {
   return rows
 }
 
+function normalizePlaylistEntry(value, position, snapshot) {
+  var row = normalizeTrack(value, 96)
+  if (!row || !row.uri)
+    row = { kind: "unavailable", type: "unavailable", name: "Unavailable track", uri: "" }
+  row.playlistPosition = position
+  row.playlistSnapshot = String(snapshot || "")
+  return row
+}
+
 function normalizeTrack(value, imageWidth, parentContext) {
-  var source = value || {}
-  var item = source.item || source.track || source.episode || source.chapter || source
+  if (!value || typeof value !== "object") return null
+  var source = value
+  var item = source.item || source.track || source.episode || source.chapter
+  if (!item && ("item" in source || "track" in source || "episode" in source || "chapter" in source))
+    return null
+  item = item || source
   if (!item || typeof item !== "object") return null
   var album = item.album || {}
   var type = String(item.type || "track")

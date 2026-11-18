@@ -358,7 +358,7 @@ class ConnectHelperTests(unittest.TestCase):
             "port": 1400,
             "brand": "Sonos",
         }
-        with mock.patch.object(helper, "discover_receivers", return_value=[receiver]), \
+        with mock.patch.object(helper, "read_cached_receiver", return_value=receiver), \
                 mock.patch.object(helper, "request_sonos_soap") as soap:
             result = helper.control_receiver(receiver["id"], "volume", "37")
 
@@ -425,7 +425,7 @@ class ConnectHelperTests(unittest.TestCase):
             "port": 1400,
             "brand": "Sonos",
         }
-        with mock.patch.object(helper, "discover_receivers", return_value=[receiver]), \
+        with mock.patch.object(helper, "read_cached_receiver", return_value=receiver), \
                 mock.patch.object(helper, "request_sonos_soap") as soap:
             helper.control_receiver(receiver["id"], "seek", "3723")
 

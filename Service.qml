@@ -221,8 +221,16 @@ Item {
   readonly property real volume: pendingSliderVolume >= 0
     ? pendingSliderVolume : reportedSliderVolume
   readonly property bool volumePending: pendingSliderVolume >= 0
-  onReportedSliderVolumeChanged: reconcilePendingSliderVolume()
-  onUseRemotePlaybackChanged: {
+  onReportedSliderVolumeChanged: {
+    reconcilePendingSliderVolume()
+    if (!useRemotePlayback && hasLocalPlayer && activePlayer.volumeSupported) {
+      var localVolume = Api.spotifydVolumeToSlider(activePlayer.volume)
+      if (Api.shouldRememberVolume(localVolume)) lastAudibleVolumes.local = localVolume
+    }
+  }
+  property var lastAudibleVolumes: ({})
+  readonly property string volumeDeviceKey: useRemotePlayback ? playbackDeviceKey(remoteDevice) : "local"
+  onVolumeDeviceKeyChanged: {
     clearPendingSliderVolume()
     volumeFlushQueued = false
     volumeFlushCooling = false
@@ -1013,6 +1021,10 @@ Item {
     var timestamp = observedAt === undefined ? Date.now() : Number(observedAt)
     if (rememberedRemoteVolumeDevice && Api.playbackDevicesMatch(rememberedRemoteVolumeDevice, device)
         && timestamp < rememberedRemoteVolumeAt) return false
+    if (Api.shouldRememberVolume(volumePercent / 100)
+        && !(Api.pendingRemoteDeviceMatches(pendingRemoteVolume, device, timestamp)
+          && volumePercent !== pendingRemoteVolume.volumePercent))
+      lastAudibleVolumes[playbackDeviceKey(device)] = volumePercent / 100
     rememberedRemoteVolumeAt = timestamp
     rememberedRemoteVolumePercent = volumePercent
     rememberedRemoteVolumeDevice = {
@@ -1797,10 +1809,7 @@ Item {
         var nextPlaylistPosition = isFinite(responseOffset)
           ? Math.max(0, Math.floor(responseOffset)) : fallbackPosition
         var page = Api.normalizePage(payload, function(value) {
-          var position = nextPlaylistPosition++
-          var normalized = Api.normalizeTrack(value, 96)
-          if (normalized) normalized.playlistPosition = position
-          return normalized
+          return Api.normalizePlaylistEntry(value, nextPlaylistPosition++, payload.snapshot_id)
         })
         // A playlist can intentionally contain the same track more than
         // once. Preserve every occurrence so visible indexes continue to
@@ -2010,16 +2019,26 @@ Item {
       openDetail(detailItem, "", restoredDetailItemCount)
   }
 
-  function removePlaylistItem(item, index, playlist) {
+  function removePlaylistItem(item, playlist) {
     var target = playlist || selectedPlaylist
     if (!item || !item.uri || !playlistEditable(target) || playlistActionBusy) return
+    var position = item.playlistPosition
+    var revision = item.playlistSnapshot || target.snapshotId
+    if (!Number.isInteger(position) || position < 0 || !revision) {
+      reloadPlaylist(target)
+      fail("Reloading the playlist. Select the track again to remove it.")
+      return
+    }
     playlistActionBusy = true
-    var body = { items: [{ uri: item.uri }] }
-    if (target.snapshotId) body.snapshot_id = target.snapshotId
+    var body = { items: [{ uri: item.uri, positions: [position] }], snapshot_id: revision }
     spotifyApi.request("DELETE", "/playlists/" + encodeURIComponent(String(target.id)) + "/items",
       null, body, function(status, payload, error) {
         root.playlistActionBusy = false
-        if (error) { root.fail(error); return }
+        if (error) {
+          if (status === 409) root.reloadPlaylist(target)
+          root.fail(error)
+          return
+        }
         root.updatePlaylistSnapshot(target.id, payload && payload.snapshot_id)
         root.succeed("Removed from playlist")
         root.reloadPlaylist(target)
@@ -2038,10 +2057,12 @@ Item {
       && String(detailItem.id || "") === playlistId
     var orderingItems = Array.isArray(sourceItems) ? sourceItems
       : (selectedMatches ? playlistItems : (detailMatches ? detailItems : []))
+    var sourceRow = orderingItems[sourceIndex]
+    var revision = (sourceRow && sourceRow.playlistSnapshot) || target.snapshotId
     var body = orderingItems.length
       ? Api.playlistReorderBodyForItems(orderingItems, sourceIndex,
         destinationIndex, Math.max(length, Number(target.total) || 0),
-        target.snapshotId)
+        revision)
       : Api.playlistReorderBody(sourceIndex, destinationIndex, length,
         target ? target.snapshotId : "")
     if (!body) return
@@ -2070,10 +2091,12 @@ Item {
           if (detailMatches && root.detailItem && root.detailItem.type === "playlist"
               && String(root.detailItem.id || "") === playlistId)
             root.detailItems = previousDetailItems
+          if (status === 409) root.reloadPlaylist(target)
           root.fail(error)
           return
         }
         root.updatePlaylistSnapshot(target.id, payload && payload.snapshot_id)
+        root.reloadPlaylist(target)
         root.succeed("Playlist order updated")
       })
   }
@@ -2096,20 +2119,19 @@ Item {
   function detailPageFromPayload(payload, type, parent) {
     var container = payload || {}
     if (type === "album") container = payload && payload.tracks ? payload.tracks : container
-    else if (type === "playlist")
-      container = payload && (payload.items || payload.tracks) ? (payload.items || payload.tracks) : container
+    else if (type === "playlist" && !Array.isArray(container.items))
+      container = container.items || container.tracks || container
     else if (type === "show") container = payload && payload.episodes ? payload.episodes : container
     else if (type === "audiobook")
       container = payload && payload.chapters ? payload.chapters : container
     var nextPlaylistPosition = Math.max(0,
       Math.floor(Number(container.offset) || 0))
     return Api.normalizePage(container, function(value) {
-      var position = nextPlaylistPosition++
-      var normalized = type === "artist" ? Api.normalizeContext(value, 96)
+      if (type === "playlist")
+        return Api.normalizePlaylistEntry(value, nextPlaylistPosition++,
+          container.snapshot_id || payload.snapshot_id)
+      return type === "artist" ? Api.normalizeContext(value, 96)
         : Api.normalizeTrack(value, 96, parent)
-      if (normalized && type === "playlist")
-        normalized.playlistPosition = position
-      return normalized
     })
   }
 
@@ -2159,6 +2181,15 @@ Item {
         root.loadArtistThisIs(serial, parent)
         root.findArtistMusic(initialArtistQuery, serial, parent)
         return
+      }
+      if (type === "playlist") {
+        var summary = payload && (payload.items || payload.tracks)
+        if (summary && !Array.isArray(summary) && !Array.isArray(summary.items)) {
+          root.detailLoading = false
+          root.detailNext = metadataPath + "/items?limit=50"
+          root.loadMoreDetail()
+          return
+        }
       }
       var page = root.detailPageFromPayload(payload, type, parent)
       root.detailItems = page.items
@@ -2334,6 +2365,7 @@ Item {
       root.detailLoading = false
       if (error) {
         root.detailRestoreTargetCount = 0
+        if (!root.detailItems.length) root.detailMessage = error
         root.fail(error)
         return
       }
@@ -3419,8 +3451,18 @@ Item {
     })
   }
 
+  function toggleMute() {
+    if (!volumeSupported) return
+    var remembered = lastAudibleVolumes[volumeDeviceKey]
+    setVolume(Api.shouldRememberVolume(volume) ? 0
+      : Api.unmuteVolume(remembered === undefined ? 0.5 : remembered))
+  }
+
   function setVolume(value, live) {
     var sliderValue = Math.max(0, Math.min(1, Number(value) || 0))
+    var audible = Api.shouldRememberVolume(sliderValue) ? sliderValue : volume
+    if (Api.shouldRememberVolume(audible))
+      lastAudibleVolumes[volumeDeviceKey] = audible
     noteActivity()
     if (live === true) {
       volumeLiveActive = true
@@ -3696,6 +3738,7 @@ Item {
     remotePlayback = null
     remotePlaybackLoading = false
     remotePlaybackWaiters = []
+    lastAudibleVolumes = ({})
     rememberedRemoteVolumeDevice = null
     rememberedRemoteVolumePercent = -1
     pendingRemoteSeek = null

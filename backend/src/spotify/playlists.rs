@@ -304,12 +304,14 @@ pub async fn playlist_items(
             entry
         })
         .collect();
-    Ok(json::page(
+    let mut page = json::page(
         entries,
         paging.offset,
         paging.limit,
         content.length().max(0) as usize,
-    ))
+    );
+    page["snapshot_id"] = json!(hex(content.revision()));
+    Ok(page)
 }
 
 fn list_changes(session: &SpotifySession, base_revision: &[u8], ops: Vec<Op>) -> ListChanges {
@@ -427,6 +429,18 @@ fn reorder_op(body: &Value, total: i32) -> anyhow::Result<Op> {
     Ok(op)
 }
 
+fn check_snapshot(body: &Value, revision: &[u8]) -> anyhow::Result<()> {
+    if let Some(snapshot) = body["snapshot_id"].as_str().filter(|v| !v.is_empty()) {
+        if snapshot != hex(revision) {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "The playlist changed. Reload it before editing tracks.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub async fn reorder_items(
     session: &SpotifySession,
     id: &str,
@@ -434,14 +448,7 @@ pub async fn reorder_items(
 ) -> anyhow::Result<Value> {
     let body = body.ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Missing playlist move"))?;
     let current = fetch_playlist(session, id, 0, 1).await?;
-    if let Some(snapshot) = body["snapshot_id"].as_str().filter(|v| !v.is_empty()) {
-        if snapshot != hex(current.revision()) {
-            return Err(api_error(
-                StatusCode::CONFLICT,
-                "The playlist changed. Reload it before moving tracks.",
-            ));
-        }
-    }
+    check_snapshot(body, current.revision())?;
     let op = reorder_op(body, current.length())?;
     post_changes(
         session,
@@ -486,7 +493,7 @@ fn removal_positions(entries: &[Value], contents: &[String]) -> Vec<(i32, String
             continue;
         };
         match entry["positions"].as_array() {
-            Some(given) if !given.is_empty() => positions.extend(
+            Some(given) => positions.extend(
                 given
                     .iter()
                     .filter_map(Value::as_u64)
@@ -498,7 +505,8 @@ fn removal_positions(entries: &[Value], contents: &[String]) -> Vec<(i32, String
                     })
                     .map(|position| (position as i32, uri.to_string())),
             ),
-            _ => positions.extend(
+            None if entry.get("positions").is_some() => continue,
+            None => positions.extend(
                 contents
                     .iter()
                     .enumerate()
@@ -532,7 +540,15 @@ pub async fn remove_items(
         .iter()
         .map(|item| item.uri().to_string())
         .collect();
-    let ops: Vec<Op> = removal_positions(&entries, &contents)
+    check_snapshot(body.unwrap_or(&Value::Null), current.revision())?;
+    let positions = removal_positions(&entries, &contents);
+    if positions.is_empty() && entries.iter().any(|entry| entry.get("positions").is_some()) {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "The selected playlist row has changed.",
+        ));
+    }
+    let ops: Vec<Op> = positions
         .into_iter()
         .map(|(position, uri)| remove_op(position, &uri))
         .collect();
@@ -657,6 +673,20 @@ mod tests {
             removal_positions(&entries, &contents),
             vec![(0, "a".to_string())]
         );
+    }
+
+    #[test]
+    fn removing_a_duplicate_only_removes_the_requested_occurrence() {
+        let contents = vec!["a".to_owned(), "b".to_owned(), "a".to_owned()];
+        let entries = [json!({"uri":"a", "positions":[2]})];
+        assert_eq!(
+            removal_positions(&entries, &contents),
+            vec![(2, "a".to_owned())]
+        );
+        assert!(removal_positions(&[json!({"uri":"a","positions":[]})], &contents).is_empty());
+        let request = json!({"snapshot_id":"0102"});
+        assert!(check_snapshot(&request, &[1, 2]).is_ok());
+        assert!(check_snapshot(&request, &[1, 3]).is_err());
     }
 
     #[test]

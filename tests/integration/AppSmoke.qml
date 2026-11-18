@@ -5,12 +5,25 @@ import "plugin" as Plugin
 ShellRoot {
   QtObject {
     id: host
+    function serviceFor(moduleName) { return spotifyService }
     property var barConfig: ({layout: {centerEnd: [{id: "quickshell.spotify", clientId: "invalid", showArtwork: "Off"}]}})
   }
   Plugin.Service { id: spotifyService; shell: host; manifest: ({id: "quickshell.spotify"}) }
   Plugin.SpotifyConnectManager { id: receiver; pluginDir: "/nonexistent"; activating: true }
   Plugin.Panel { id: panel; service: spotifyService; width: 1280; height: 800 }
-  Plugin.BarWidget { id: widget }
+  QtObject {
+    id: testBar
+    property var shell: host
+    property bool vertical: false
+    property bool foregroundAnimationEnabled: false
+    property int barSize: 32
+    property string fontFamily: "sans-serif"
+    property string position: "top"
+    property color foreground: "white"
+    property color barForeground: "white"
+    property color background: "black"
+  }
+  Plugin.BarWidget { id: widget; bar: testBar }
   Plugin.MediaRow {
     id: measuredRow
     width: 240
@@ -60,6 +73,62 @@ ShellRoot {
         throw new Error("Search navigation is missing")
       spotifyService.clearSearch()
       if (spotifyService.searchQuery !== "") throw new Error("Search state did not clear")
+      var removed = null
+      var volumes = []
+      var confirmations = []
+      spotifyService.api.nativeSession = {
+        request: function(method, path, query, body, done) {
+          var base = "/playlists/test"
+          var track = {item: {type: "track", id: "song", name: "Song", uri: "spotify:track:song"}}
+          if (method === "DELETE" && path === base + "/items") {
+            removed = body
+            done(200, {snapshot_id: "updated"}, "")
+          } else if (path === "/me/player/volume") {
+            volumes.push([query.device_id, query.volume_percent])
+            confirmations.push(done)
+          } else if (path === base)
+            done(200, {type: "playlist", id: "test", name: "Playlist", collaborative: true, items: {total: 3}}, "")
+          else if (path === base + "/items?limit=50")
+            done(200, {items: [track, {item: null}], snapshot_id: "revision", offset: 0, next: base + "/items?offset=2"}, "")
+          else if (path.endsWith("/items?offset=2"))
+            done(200, {items: [track], snapshot_id: "revision", offset: 2, next: null}, "")
+          else done(200, [], "")
+          return null
+        }
+      }
+      spotifyService.openDetail({kind: "context", type: "playlist", id: "test"}, "", 3)
+      if (spotifyService.detailItems.length !== 3 || spotifyService.detailNext
+          || spotifyService.detailItems[0].name !== "Song"
+          || spotifyService.detailItems[2].playlistPosition !== 2)
+        throw new Error("Playlist detail failed to load both item pages")
+      var unavailable = spotifyService.detailItems[1]
+      measuredRow.itemData = unavailable
+      if (unavailable.name !== "Unavailable track" || unavailable.playlistPosition !== 1
+          || measuredRow.enabled || measuredRow.fullActionCount)
+        throw new Error("Unavailable playlist entry became actionable or lost its position")
+      spotifyService.removePlaylistItem(spotifyService.detailItems[2], spotifyService.detailItem)
+      if (!removed || removed.snapshot_id !== "revision"
+          || JSON.stringify(removed.items) !== JSON.stringify([{uri: "spotify:track:song", positions: [2]}]))
+        throw new Error("Removing a duplicate lost its position or revision")
+
+      function selectSpeaker(id, percent) {
+        spotifyService.remotePlayback = {device: {id: id, name: "Speaker", active: true,
+          type: "Speaker", supportsVolume: true, volumePercent: percent}}
+      }
+      selectSpeaker("office123", 42)
+      if (typeof panel === "undefined") spotifyService.toggleMute()
+      else panel.toggleMute()
+      selectSpeaker("studio123", 2)
+      spotifyService.toggleMute()
+      selectSpeaker("office123", 0)
+      if (typeof widget === "undefined") spotifyService.toggleMute()
+      else widget.toggleMute()
+      selectSpeaker("studio123", 0)
+      spotifyService.toggleMute()
+      while (confirmations.length) confirmations.shift()(204, null, "")
+      if (JSON.stringify(volumes) !== JSON.stringify([
+          ["office123", 0], ["studio123", 0], ["office123", 42], ["studio123", 2]]))
+        throw new Error("Mute did not restore each speaker's audible level: " + JSON.stringify(volumes))
       console.log("APP_SMOKE_PASS")
       Qt.quit()
     }

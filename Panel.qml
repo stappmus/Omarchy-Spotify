@@ -16,7 +16,6 @@ Item {
   property bool opened: false
   property bool closingFromHost: false
   property bool escapeCloseArmed: false
-  property real volumeBeforeMute: 0.5
   property double lastVolumeAdjustAt: 0
   property string currentTab: "home"
   property bool openedForLogin: false
@@ -335,7 +334,7 @@ Item {
 
   function openMediaContext(item, sceneX, sceneY, sourceItems, contextUri, index,
       playbackContextUri) {
-    if (!item) return
+    if (!item || item.kind === "unavailable") return
     contextItem = item
     contextSourceItems = Array.isArray(sourceItems) ? sourceItems : []
     contextSourceUri = String(contextUri || "")
@@ -638,7 +637,7 @@ Item {
     if (!service || !service.selectedPlaylist) return
     var collection = pageCollection()
     if (collection && collection.playbackUsesVisibleOrder) {
-      var items = Api.arrayValues(collection.visibleItems)
+      var items = collection.visibleItems.filter(function(row) { return !!row.uri })
       if (!items.length) {
         service.fail("No visible playlist items to play")
         return
@@ -1829,9 +1828,7 @@ Item {
 
   function setPanelVolume(value, live) {
     if (!service || !service.volumeSupported) return
-    var next = Api.nextVolume(value, 0)
-    if (Api.shouldRememberVolume(next)) volumeBeforeMute = next
-    service.setVolume(next, live === true)
+    service.setVolume(Api.nextVolume(value, 0), live === true)
   }
 
   function adjustVolume(delta) {
@@ -1843,12 +1840,7 @@ Item {
   }
 
   function toggleMute() {
-    if (!service || !service.volumeSupported) return
-    var current = Api.nextVolume(service.volume, 0)
-    if (Api.shouldRememberVolume(current)) {
-      volumeBeforeMute = current
-      service.setVolume(0)
-    } else service.setVolume(Api.unmuteVolume(volumeBeforeMute))
+    if (service) service.toggleMute()
   }
 
   function toggleShortcutHelp() {
@@ -2699,9 +2691,8 @@ Item {
         text: "Remove from playlist"
         iconText: "󰅖"
         onClicked: {
-          var position = root.playlistPosition(root.contextItem)
           mediaContextMenu.close()
-          root.service.removePlaylistItem(root.contextItem, position, root.contextPlaylist)
+          root.service.removePlaylistItem(root.contextItem, root.contextPlaylist)
         }
       }
 
@@ -4505,7 +4496,7 @@ Item {
                   step: 0.05
                   sourceValue: root.service ? root.service.volume : 0
                   sourcePending: root.service && root.service.volumePending
-                  contextKey: root.service ? root.service.playbackDeviceName : ""
+                  contextKey: root.service ? root.service.volumeDeviceKey : ""
                   liveCommit: true
                   onCommitted: function(value, live) {
                     root.setPanelVolume(value, live)
@@ -5646,11 +5637,11 @@ Item {
               foreground: root.foreground
               selected: true
               enabled: !playlistItemsCollection.playbackUsesVisibleOrder
-                || playlistItemsCollection.visibleItems.length > 0
+                || playlistItemsCollection.visibleItems.some(row => !!row.uri)
               hasCursor: root.cursorOn("page", "playlist-play")
               tooltipText: playlistItemsCollection.playbackUsesVisibleOrder
                 ? Api.visibleOrderPlaybackMessage(
-                  playlistItemsCollection.visibleItems.length)
+                  playlistItemsCollection.visibleItems.filter(row => !!row.uri).length)
                 : "Play this playlist in its original order"
               onClicked: root.playSelectedPlaylist()
               onHovered: function(on) {

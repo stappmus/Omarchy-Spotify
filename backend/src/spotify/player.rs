@@ -185,6 +185,7 @@ fn device_json(id: &str, info: &DeviceInfo, active: bool) -> Value {
       "is_active": active,
       "is_private_session": info.is_private_session,
       "is_restricted": false,
+      "supports_volume": info.capabilities.as_ref().is_some_and(|caps| !caps.disable_volume),
       "volume_percent": volume_percent(info.volume),
     })
 }
@@ -654,11 +655,19 @@ mod tests {
     #[test]
     fn a_device_deserializes_as_a_web_api_device() {
         let value = device_json("d1", &device("Phone", DeviceType::SMARTPHONE, false), true);
+        assert_eq!(value["supports_volume"], true);
         let parsed: rspotify_model::Device = serde_json::from_value(value).unwrap();
         assert_eq!(parsed.id.as_deref(), Some("d1"));
         assert_eq!(parsed.name, "Phone");
         assert!(parsed.is_active);
         assert_eq!(parsed.volume_percent, Some(100));
+    }
+
+    #[test]
+    fn a_fixed_volume_device_does_not_offer_a_slider() {
+        let mut info = device("Speaker", DeviceType::SPEAKER, false);
+        info.capabilities.mut_or_insert_default().disable_volume = true;
+        assert_eq!(device_json("d1", &info, true)["supports_volume"], false);
     }
 
     #[test]

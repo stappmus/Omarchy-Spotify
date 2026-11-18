@@ -13,6 +13,7 @@ BorderSurface {
   property color accent: Theme.Color.accent
   property color muted: Theme.Color.muted
   property string fontFamily: Style.font.family
+  enabled: !!itemData && itemData.kind !== "unavailable"
   property bool selected: false
   property bool showPlay: true
   property bool showQueue: false
@@ -35,7 +36,7 @@ BorderSurface {
     && ["track", "episode"].indexOf(itemData.type) >= 0
   readonly property bool queueActionVisible: showQueue && itemData
     && ["track", "episode"].indexOf(itemData.type) >= 0
-  readonly property bool playActionVisible: showPlay && itemData
+  readonly property bool playActionVisible: enabled && showPlay && itemData
     && ["show", "audiobook"].indexOf(itemData.type) < 0
   readonly property int fullActionCount: (durationActionVisible ? 1 : 0)
     + (saveActionVisible ? 1 : 0) + (playlistActionVisible ? 1 : 0)
@@ -81,11 +82,12 @@ BorderSurface {
   signal reorderDragCanceled()
 
   function triggerPrimary() {
+    if (!enabled) return
     if (browseOnActivate) openRequested(itemData)
     else activated(itemData)
   }
 
-  function triggerPlay() { activated(itemData) }
+  function triggerPlay() { if (enabled) activated(itemData) }
 
   onItemDataChanged: actionsExpanded = false
   onCompactActionsChanged: if (!compactActions) actionsExpanded = false
@@ -102,7 +104,7 @@ BorderSurface {
   borderSpec: selected || reorderDragging
     ? Border.controlSpec("selected", foreground, accent)
     : Border.none()
-  opacity: reorderDragging ? 0.55 : 1
+  opacity: !enabled || reorderDragging ? 0.55 : 1
   clip: true
 
   HoverHandler { id: hoverHandler }

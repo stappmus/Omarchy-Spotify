@@ -36,7 +36,6 @@ BarWidget {
   property bool popoutSwitchClosing: false
   property bool miniCursorActive: false
   property string miniCursor: "play"
-  property real volumeBeforeMute: 0.5
   property bool shortcutModeLatched: false
   property int heldModifierFlags: 0
   property bool pendingShortcutLatch: false
@@ -364,9 +363,7 @@ BarWidget {
 
   function setVolumeValue(value, live) {
     if (!spotify || !spotify.volumeSupported) return false
-    var next = Api.nextVolume(value, 0)
-    if (Api.shouldRememberVolume(next)) volumeBeforeMute = next
-    spotify.setVolume(next, live === true)
+    spotify.setVolume(Api.nextVolume(value, 0), live === true)
     return true
   }
 
@@ -376,12 +373,7 @@ BarWidget {
   }
 
   function toggleMute() {
-    if (!spotify || !spotify.volumeSupported) return
-    var current = Api.nextVolume(spotify.volume, 0)
-    if (Api.shouldRememberVolume(current)) {
-      volumeBeforeMute = current
-      spotify.setVolume(0)
-    } else spotify.setVolume(Api.unmuteVolume(volumeBeforeMute))
+    if (spotify) spotify.toggleMute()
   }
 
   function activateMiniAction(action) {
@@ -1338,7 +1330,7 @@ BarWidget {
             step: 0.05
             sourceValue: root.spotify ? root.spotify.volume : 0
             sourcePending: root.spotify && root.spotify.volumePending
-            contextKey: root.spotify ? root.spotify.playbackDeviceName : ""
+            contextKey: root.spotify ? root.spotify.volumeDeviceKey : ""
             enabled: root.spotify && root.spotify.volumeSupported
             liveCommit: true
             onCommitted: function(value, live) {
