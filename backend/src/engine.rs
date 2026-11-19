@@ -138,6 +138,8 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
     let (shutdown, shutdown_rx) = watch::channel(false);
     let (done_tx, done) = oneshot::channel();
     let spirc_task = tokio::spawn(spirc_task);
+    let (wake_tx, wake_rx) = watch::channel(0u64);
+    tokio::spawn(crate::sleep::watch_resume(wake_tx));
     tokio::spawn(async move {
         let result = supervise_sessions(
             session_config,
@@ -152,6 +154,7 @@ pub async fn start(config: BackendConfig, state: StateStore) -> Result<EngineRun
             current_spirc_tx,
             state,
             shutdown_rx,
+            wake_rx,
         )
         .await;
         let _ = done_tx.send(result);
@@ -178,13 +181,24 @@ async fn supervise_sessions(
     current_spirc: watch::Sender<Option<Arc<Spirc>>>,
     state: StateStore,
     mut shutdown: watch::Receiver<bool>,
+    mut wake: watch::Receiver<u64>,
 ) -> Result<()> {
     let mut reconnects = VecDeque::new();
 
     loop {
-        tokio::select! {
+        // After a suspend the old connection is dead, but librespot only
+        // notices once its websocket ping times out, which took up to 16
+        // minutes. Reconnect as soon as logind reports the resume instead.
+        let forced = tokio::select! {
             result = &mut spirc_task => {
                 result.context("librespot session task failed")?;
+                false
+            }
+            // The watcher never drops its sender, so this only fires on a resume.
+            Ok(()) = wake.changed() => {
+                log::info!("resumed from sleep; reconnecting now");
+                spirc_task.abort();
+                true
             }
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
@@ -193,7 +207,7 @@ async fn supervise_sessions(
                 }
                 continue;
             }
-        }
+        };
 
         current_spirc.send_replace(None);
         state.update(|current| {
@@ -203,11 +217,14 @@ async fn supervise_sessions(
             true
         });
 
-        let now = Instant::now();
-        if !record_reconnect(&mut reconnects, now) {
-            return Err(crate::failure::Failure::ReconnectExhausted.into());
+        // A resume is not a sign of a failing connection, so it does not
+        // count towards the burst limit.
+        if !forced {
+            if !record_reconnect(&mut reconnects, Instant::now()) {
+                return Err(crate::failure::Failure::ReconnectExhausted.into());
+            }
+            log::warn!("librespot session ended; reconnecting");
         }
-        log::warn!("librespot session ended; reconnecting");
 
         // Spirc::new has no deadline of its own: after a dealer timeout on a
         // flaky network it can wait forever, leaving this computer missing
@@ -261,6 +278,8 @@ async fn supervise_sessions(
             backoff = (backoff * 2).min(RECONNECT_BACKOFF_MAX);
         };
 
+        // A resume seen while this reconnect ran is already covered by it.
+        wake.borrow_and_update();
         spirc = Arc::new(next_spirc);
         spirc_task = tokio::spawn(next_task);
         current_spirc.send_replace(Some(Arc::clone(&spirc)));
