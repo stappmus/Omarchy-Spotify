@@ -34,6 +34,9 @@ const INITIAL_VOLUME: u16 = ((u16::MAX as u32 * 90) / 100) as u16;
 const ENGINE_QUEUE_CAPACITY: usize = 64;
 const RECONNECT_LIMIT: usize = 5;
 const RECONNECT_WINDOW: Duration = Duration::from_secs(10 * 60);
+const RECONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(20);
+const RECONNECT_BACKOFF_START: Duration = Duration::from_secs(2);
+const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(60);
 const AUDIO_KEY_UNAVAILABLE_CODE: &str = "audio_key_unavailable";
 const AUDIO_KEY_UNAVAILABLE_MESSAGE: &str = "Spotify did not provide the audio key required to play this track on this computer. Try another Spotify Connect device.";
 
@@ -206,29 +209,56 @@ async fn supervise_sessions(
         }
         log::warn!("librespot session ended; reconnecting");
 
-        if !session.is_invalid() {
-            session.shutdown();
-        }
-        session = Session::new(session_config.clone(), Some(runtime_cache.clone()));
-        player.set_session(session.clone());
-        let reconnect = Spirc::new(
-            connect_config.clone(),
-            session.clone(),
-            credentials.clone(),
-            Arc::clone(&player),
-            Arc::clone(&mixer),
-        );
-        tokio::pin!(reconnect);
-        let (next_spirc, next_task) = tokio::select! {
-            result = &mut reconnect => {
-                result.context("failed to reconnect the librespot session")?
+        // Spirc::new has no deadline of its own: after a dealer timeout on a
+        // flaky network it can wait forever, leaving this computer missing
+        // from Spotify Connect until a restart. Bound each attempt and retry.
+        let mut backoff = RECONNECT_BACKOFF_START;
+        let (next_spirc, next_task) = loop {
+            if !session.is_invalid() {
+                session.shutdown();
             }
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() {
-                    return Ok(());
+            session = Session::new(session_config.clone(), Some(runtime_cache.clone()));
+            player.set_session(session.clone());
+            let attempt = tokio::time::timeout(
+                RECONNECT_ATTEMPT_TIMEOUT,
+                Spirc::new(
+                    connect_config.clone(),
+                    session.clone(),
+                    credentials.clone(),
+                    Arc::clone(&player),
+                    Arc::clone(&mixer),
+                ),
+            );
+            tokio::pin!(attempt);
+            let failure = tokio::select! {
+                result = &mut attempt => match result {
+                    Ok(Ok(pair)) => break pair,
+                    Ok(Err(error)) => format!("{error:#}"),
+                    Err(_) => format!(
+                        "no answer within {}s",
+                        RECONNECT_ATTEMPT_TIMEOUT.as_secs()
+                    ),
+                },
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        return Ok(());
+                    }
+                    continue;
                 }
-                continue;
+            };
+            log::warn!(
+                "reconnect attempt failed ({failure}); retrying in {}s",
+                backoff.as_secs()
+            );
+            tokio::select! {
+                _ = tokio::time::sleep(backoff) => {}
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        return Ok(());
+                    }
+                }
             }
+            backoff = (backoff * 2).min(RECONNECT_BACKOFF_MAX);
         };
 
         spirc = Arc::new(next_spirc);
