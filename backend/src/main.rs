@@ -3,6 +3,7 @@ mod engine;
 mod failure;
 mod mpris;
 mod protocol;
+mod sleep;
 mod socket;
 mod spotify;
 mod state;

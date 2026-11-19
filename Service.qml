@@ -470,6 +470,9 @@ Item {
   property bool localActivationRequested: false
   property int deviceProbeAttempts: 0
   property int localSocketWaitAttempts: 0
+  // 200 ms ticks. The backend retries a reconnect on its own for as long as
+  // the network is down, so while it reports one in progress wait longer.
+  property int localSocketWaitLimit: 25
   property int visibleLocalDeviceRefreshAttempts: 0
   property bool loginFlowActive: false
   property string pendingConnectDeviceId: ""
@@ -3040,6 +3043,17 @@ Item {
       waitForLocalSocketThenPlay(playbackSerial)
       return
     }
+    if (!daemonManager.usingFallbackRuntime && backendClient.connected
+        && backendClient.lifecycle === "starting") {
+      // The backend is reconnecting to Spotify (e.g. just after a resume).
+      // Probing the Web API for this device would fail for the same reason,
+      // so wait for the backend instead of reporting a bogus Settings error.
+      statusClearTimer.stop()
+      statusMessage = "Reconnecting to Spotify…"
+      waitForLocalSocketThenPlay(playbackSerial)
+      localSocketWaitLimit = 150
+      return
+    }
     if (target && target.local && daemonManager.running) {
       localActivationRequested = false
       sendPendingPlayback(Api.playbackTargetDeviceId(target, selectedDeviceExplicit))
@@ -3077,11 +3091,12 @@ Item {
     var radioPlaylist = pendingPlaybackRadio
     clearPendingPlayback()
     localSocketWaitTimer.stop()
+    localSocketWaitLimit = 25
     backendClient.loadPlayback(body, function(ok, result, error) {
       if (ok) {
         if (playbackSerial === root.radioSerial)
           root.radioContextSelected = !!radioPlaylist
-        if (successMessage) root.succeed(successMessage)
+        root.succeed(successMessage)
         root.loadQueue()
         root.loadPlaybackState()
         return
@@ -3153,7 +3168,10 @@ Item {
       if (root.deviceProbeAttempts < 8) deviceProbeTimer.restart()
       else {
         root.clearPendingPlayback()
-        root.fail("Playback on this computer did not become available. Reconnect Spotify in Settings, then try again")
+        if (root.backend.connected && root.backend.lifecycle === "starting")
+          root.fail("Still reconnecting to Spotify. Check your internet connection, then try again")
+        else
+          root.fail("Playback on this computer did not become available. Reconnect Spotify in Settings, then try again")
       }
     })
   }
@@ -4156,9 +4174,10 @@ Item {
         return
       }
       root.localSocketWaitAttempts++
-      if (root.localSocketWaitAttempts >= 25) {
+      if (root.localSocketWaitAttempts >= root.localSocketWaitLimit) {
         stop()
         root.localSocketWaitAttempts = 0
+        root.localSocketWaitLimit = 25
         if (root.pendingPlaybackBody) {
           root.succeed(Api.localSocketFallbackMessage())
           deviceProbeTimer.restart()
