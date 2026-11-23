@@ -66,6 +66,26 @@ ShellRoot {
       spotifyService.rememberRemoteVolume(device, 70, 200)
       spotifyService.rememberRemoteVolume(device, 10, 100)
       if (spotifyService.rememberedRemoteVolumePercent !== 70) throw new Error("Stale discovery replaced fresh volume")
+      spotifyService.remotePlayback = {device: {id: "speaker123", name: "Living Room",
+        active: true, type: "Speaker", supportsVolume: true, volumePercent: null}}
+      spotifyService.apiDevices = [spotifyService.normalizeDevice({id: "speaker123",
+        name: "Living Room", type: "Speaker", is_active: true, volume_percent: 30,
+        supports_volume: true})]
+      spotifyService.mergeConnectDevices()
+      if (spotifyService.devices.length !== 1 || spotifyService.devices[0].id !== "speaker123"
+          || !spotifyService.devices[0].active)
+        throw new Error("mergeConnectDevices failed to populate active remote device")
+      if (spotifyService.rememberedRemoteVolumePercent !== 70)
+        throw new Error("mergeConnectDevices overwrote remembered volume with cached device list")
+      spotifyService.remotePlayback = {device: {id: "soloist123", name: "XPS Soloist",
+        active: true, type: "Speaker", supportsVolume: true, volumePercent: null}}
+      spotifyService.apiDevices = [spotifyService.normalizeDevice({id: "soloist123",
+        name: "XPS Soloist", type: "Speaker", is_active: true, volume_percent: 45,
+        supports_volume: true})]
+      spotifyService.mergeConnectDevices()
+      if (spotifyService.devices.length !== 1 || spotifyService.devices[0].id !== "soloist123"
+          || spotifyService.rememberedRemoteVolumePercent !== 45)
+        throw new Error("mergeConnectDevices did not fall back to device list volume when unknown")
       spotifyService.search("smoke-test", "track")
       if (spotifyService.searchLoading || !spotifyService.searchError)
         throw new Error("Search service did not return the authorization error")
