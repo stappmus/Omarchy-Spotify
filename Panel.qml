@@ -59,6 +59,7 @@ Item {
 
   property string draftClientId: ""
   property string draftDeviceName: "Omarchy Spotify"
+  property bool draftBuiltInReceiver: true
   property string draftIdleMinutes: "15"
   property bool draftShowMiniPlayer: true
   property bool draftShowArtwork: true
@@ -197,6 +198,7 @@ Item {
     if (!service) return
     draftClientId = String(service.settings.clientId || "")
     draftDeviceName = service.deviceName
+    draftBuiltInReceiver = service.builtInReceiverEnabled
     draftIdleMinutes = String(service.idleShutdownMinutes)
     draftShowMiniPlayer = service.showMiniPlayer
     draftShowArtwork = service.artworkEnabled
@@ -218,6 +220,7 @@ Item {
     if (!service) return
     var values = {
       deviceName: String(draftDeviceName || "").trim() || "Omarchy Spotify",
+      builtInReceiver: draftBuiltInReceiver ? "On" : "Off",
       idleShutdownMinutes: Math.max(0, Math.min(1440,
         Math.floor(Number(draftIdleMinutes) || 0))),
       showMiniPlayer: draftShowMiniPlayer ? "On" : "Off",
@@ -6569,6 +6572,21 @@ Item {
                   onTextEdited: root.draftIdleMinutes = text
                   onEditingFinished: root.persistDraftSettings()
                 }
+              }
+            }
+
+            Button {
+              text: "Built-in local receiver · "
+                + (root.draftBuiltInReceiver ? "On" : "Off")
+              iconText: "󰓃"
+              foreground: root.foreground
+              selected: root.draftBuiltInReceiver
+              tooltipText: root.draftBuiltInReceiver
+                ? "Auto-start the built-in librespot receiver for playback on this computer"
+                : "Do not auto-start the built-in receiver (use Soloist or another Connect device)"
+              onClicked: {
+                root.draftBuiltInReceiver = !root.draftBuiltInReceiver
+                root.persistDraftSettings()
               }
             }
 

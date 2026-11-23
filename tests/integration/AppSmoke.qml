@@ -45,6 +45,29 @@ ShellRoot {
         throw new Error("Public centerEnd settings not loaded")
       spotifyService.applySettings({})
       if (spotifyService.settings.showArtwork !== "Off") throw new Error("Empty widget push reset settings")
+      spotifyService.applySettings({builtInReceiver: "Off"})
+      if (spotifyService.builtInReceiverEnabled || spotifyService.settings.builtInReceiver !== "Off")
+        throw new Error("builtInReceiver setting did not normalize to Off")
+      if (typeof panel !== "undefined") {
+        panel.syncDraftSettings()
+        if (panel.draftBuiltInReceiver)
+          throw new Error("Panel draftBuiltInReceiver did not reflect Off")
+      }
+      spotifyService.devicesLoaded = true
+      spotifyService.devices = [{id: "local1", name: "Omarchy Spotify", local: true, active: false, restricted: false},
+        {id: "soloist1", name: "XPS Soloist", local: false, active: false, restricted: false}]
+      if (spotifyService.autoselectLocalDevice() !== null)
+        throw new Error("autoselectLocalDevice selected local receiver while builtInReceiver is Off")
+      if (!spotifyService.fallbackRemoteDevice() || spotifyService.fallbackRemoteDevice().id !== "soloist1")
+        throw new Error("fallbackRemoteDevice did not select idle remote Connect receiver")
+      spotifyService.devices = []
+      spotifyService.playItem({kind: "item", type: "track", uri: "spotify:track:test", name: "Song"})
+      if (spotifyService.localActivationRequested
+          || spotifyService.lastError !== "No Spotify Connect device available. Select one in Devices.")
+        throw new Error("playItem tried to activate built-in receiver while builtInReceiver is Off")
+      spotifyService.applySettings({builtInReceiver: "On"})
+      if (!spotifyService.builtInReceiverEnabled)
+        throw new Error("builtInReceiver setting did not restore to On")
       if (!receiver.control("speaker123", "volume", "10") || !receiver.control("speaker123", "volume", "25"))
         throw new Error("Busy receiver rejected valid absolute control")
       receiver.control("speaker123", "next", "")
