@@ -30,6 +30,7 @@
     "defaultSection": "left",
     "defaults": {
       "deviceName": "Omarchy Spotify",
+      "builtInReceiver": "On",
       "idleShutdownMinutes": 15,
       "showMiniPlayer": "On",
       "showVinylRecord": "Off",
@@ -53,6 +54,17 @@
         "label": "This computer appears as",
         "defaultValue": "Omarchy Spotify",
         "description": "Shown in Devices immediately. Spotify Connect uses the new name the next time local playback starts."
+      },
+      {
+        "key": "builtInReceiver",
+        "type": "enum",
+        "label": "Built-in local receiver",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "Turn off to stop Omarchy Spotify from auto-starting its built-in librespot receiver (for example, when using Spotify Soloist or external Connect speakers)."
       },
       {
         "key": "idleShutdownMinutes",
