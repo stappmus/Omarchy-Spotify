@@ -2609,10 +2609,13 @@ Item {
     var currentVolume = Api.normalizeVolumePercent(
       current ? current.volumePercent : null)
     // Merging old discovery data must never overwrite a newer volume.
-    if (current && (!rememberedRemoteVolumeDevice
-        || !Api.playbackDevicesMatch(rememberedRemoteVolumeDevice, current))) {
-      if (!rememberDiscoveredReceiverVolume(current) && currentVolume !== null)
-        rememberRemoteVolume(current, currentVolume)
+    var hasRememberedVolume = !!current && rememberedRemoteVolumePercent >= 0
+      && !!rememberedRemoteVolumeDevice
+      && Api.playbackDevicesMatch(rememberedRemoteVolumeDevice, current)
+    if (current && !hasRememberedVolume) {
+      hasRememberedVolume = rememberDiscoveredReceiverVolume(current)
+      if (!hasRememberedVolume && currentVolume !== null)
+        hasRememberedVolume = rememberRemoteVolume(current, currentVolume)
     }
     var currentMatched = false
     var localById = ({})
@@ -2643,7 +2646,7 @@ Item {
           // /me/player is the freshest source for the active receiver. The
           // separately cached device list is only a fallback when that value
           // is unknown; otherwise it can undo an accepted volume command.
-          if (!localVolumePreferred && currentVolume === null)
+          if (!hasRememberedVolume && currentVolume === null)
             rememberRemoteVolume(current, apiDevice.volumePercent)
           apiDevice.restricted = current.restricted === true
           apiDevice.volumePercent = displayedRemoteVolumePercent(current)
