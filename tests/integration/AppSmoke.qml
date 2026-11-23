@@ -54,6 +54,12 @@ ShellRoot {
           throw new Error("Panel draftBuiltInReceiver did not reflect Off")
       }
       spotifyService.devicesLoaded = true
+      spotifyService.devices = [{id: "local1", name: "Omarchy Spotify", local: true, active: false, restricted: false},
+        {id: "soloist1", name: "XPS Soloist", local: false, active: false, restricted: false}]
+      if (spotifyService.autoselectLocalDevice() !== null)
+        throw new Error("autoselectLocalDevice selected local receiver while builtInReceiver is Off")
+      if (!spotifyService.fallbackRemoteDevice() || spotifyService.fallbackRemoteDevice().id !== "soloist1")
+        throw new Error("fallbackRemoteDevice did not select idle remote Connect receiver")
       spotifyService.devices = []
       spotifyService.playItem({kind: "item", type: "track", uri: "spotify:track:test", name: "Song"})
       if (spotifyService.localActivationRequested

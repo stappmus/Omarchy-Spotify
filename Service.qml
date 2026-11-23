@@ -2904,6 +2904,7 @@ Item {
   // target. Otherwise, make the local receiver the visible default as soon as
   // it is available, so the first playback click needs no trip through Devices.
   function autoselectLocalDevice() {
+    if (!builtInReceiverEnabled) return null
     var current = chooseDevice()
     var local = Api.automaticLocalPlaybackDevice(
       selectedDeviceId, current, localDevice())
@@ -2911,6 +2912,15 @@ Item {
     selectedDeviceId = local.id
     selectedDeviceExplicit = false
     return local
+  }
+
+  function fallbackRemoteDevice() {
+    for (var i = 0; i < devices.length; i++) {
+      var candidate = devices[i]
+      if (candidate && !candidate.local && candidate.id && !candidate.restricted)
+        return candidate
+    }
+    return null
   }
 
   function beginConnectAuthorization(device) {
@@ -3041,14 +3051,20 @@ Item {
       return
     }
     if (!builtInReceiverEnabled) {
+      var idleRemote = fallbackRemoteDevice()
+      if (idleRemote) {
+        localActivationRequested = false
+        sendPendingPlayback(idleRemote.id)
+        return
+      }
       if (!devicesLoaded && !devicesLoading) {
         loadDevices(function() {
           if (playbackSerial !== root.pendingPlaybackSerial || !root.pendingPlaybackBody) return
           var remoteTarget = root.chooseDevice()
+          if (!remoteTarget || remoteTarget.local) remoteTarget = root.fallbackRemoteDevice()
           if (remoteTarget && !remoteTarget.local) {
             root.localActivationRequested = false
-            root.sendPendingPlayback(Api.playbackTargetDeviceId(
-              remoteTarget, root.selectedDeviceExplicit))
+            root.sendPendingPlayback(remoteTarget.id)
             return
           }
           root.fail("No Spotify Connect device available. Select one in Devices.")
