@@ -12,6 +12,7 @@
     "panel"
   ],
   "activation": "on-demand",
+  "keepLoaded": true,
   "entryPoints": {
     "service": "Service.qml",
     "barWidget": "BarWidget.qml",

@@ -61,6 +61,11 @@ superseded by the shared fix.
   mini-player, now-playing card, lists, and detail pages. Lyrics plugins keep
   receiving cover URLs.
 
+- Keep the full player loaded between opens. Omarchy otherwise compiles and
+  builds the whole panel on every open, so the first open took about 1.3 s and
+  later ones about 160 ms; with the panel kept loaded an open takes under
+  10 ms, for about 18 MB of extra shell memory.
+
 - Keep popups drawn inside the player (keyboard shortcuts help, menus, and
   pickers) readable on translucent themes. They reuse the theme's popup
   colour, which glass-style themes set to a low alpha meant for blurred
