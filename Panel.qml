@@ -3408,7 +3408,7 @@ Item {
               anchors.right: parent.right
               anchors.top: brandRow.visible ? brandRow.bottom : parent.top
               anchors.margins: Style.space(8)
-              spacing: Style.space(2)
+              spacing: Style.space(root.compactWidth ? 6 : 2)
 
               PanelSeparator {
                 width: parent.width
@@ -3422,6 +3422,7 @@ Item {
                   required property var modelData
                   readonly property bool radioEntry: modelData.id === "radio"
                   width: primaryNavigation.width
+                  height: root.compactWidth ? width : implicitHeight
                   text: root.compactWidth ? "" : modelData.label
                   iconText: root.compactWidth ? "" : modelData.icon
                   foreground: root.foreground
@@ -3456,7 +3457,7 @@ Item {
                       ? Style.selectedStateColor(root.foreground, root.accent)
                       : root.foreground
                     fontFamily: root.fontFamily
-                    fontSize: Style.font.icon
+                    fontSize: Style.font.iconLarge
                   }
                 }
               }
@@ -3493,10 +3494,11 @@ Item {
               anchors.leftMargin: Style.space(8)
               anchors.rightMargin: Style.space(8)
               anchors.topMargin: Style.space(6)
-              spacing: Style.space(2)
+              spacing: Style.space(root.compactWidth ? 6 : 2)
 
               Button {
                 width: parent.width
+                height: root.compactWidth ? width : implicitHeight
                 text: root.compactWidth ? "" : "Liked Songs"
                 iconText: root.compactWidth ? "" : "󰋑"
                 foreground: root.foreground
@@ -3520,7 +3522,7 @@ Item {
                     ? Style.selectedStateColor(root.foreground, root.accent)
                     : root.foreground
                   fontFamily: root.fontFamily
-                  fontSize: Style.font.icon
+                  fontSize: Style.font.iconLarge
                 }
               }
 
@@ -3533,6 +3535,7 @@ Item {
                   width: root.compactWidth ? parent.width
                     : Math.max(20, parent.width - createPlaylistShortcut.width
                       - parent.spacing)
+                  height: root.compactWidth ? width : implicitHeight
                   text: root.compactWidth ? "" : "Playlists"
                   iconText: root.compactWidth ? "" : "󱁐"
                   foreground: root.foreground
@@ -3556,7 +3559,7 @@ Item {
                       ? Style.selectedStateColor(root.foreground, root.accent)
                       : root.foreground
                     fontFamily: root.fontFamily
-                    fontSize: Style.font.icon
+                    fontSize: Style.font.iconLarge
                   }
                 }
 
@@ -3584,7 +3587,6 @@ Item {
 
             ListView {
               id: playlistShortcuts
-              visible: !root.compactWidth
               anchors.left: parent.left
               anchors.right: parent.right
               anchors.top: libraryNavigation.bottom
@@ -3617,10 +3619,13 @@ Item {
                 required property var modelData
                 required property int index
                 width: ListView.view.width
-                text: root.sidebarPlaylistName(modelData)
-                iconText: "󰲸"
+                height: root.compactWidth ? width : implicitHeight
+                text: root.compactWidth ? "" : root.sidebarPlaylistName(modelData)
+                iconText: root.compactWidth ? "" : "󰲸"
                 foreground: root.foreground
-                leftAlign: true
+                leftAlign: !root.compactWidth
+                horizontalPadding: root.compactWidth
+                  ? 0 : Style.spacing.controlPaddingX
                 focusable: false
                 hasCursor: root.cursorOn("sidebar", "sidebar-playlists")
                   && ListView.isCurrentItem
@@ -3648,6 +3653,39 @@ Item {
                     root.hintShiftHeld
                     root.hintAltHeld
                     return root.sidebarPlaylistNavHint(index)
+                  }
+                }
+
+                // Compact rail: render each playlist as its cover art (glyph
+                // fallback) so the narrow sidebar stays a usable library
+                // instead of hiding it and leaving the space empty.
+                Item {
+                  anchors.fill: parent
+                  anchors.margins: Style.space(3)
+                  visible: root.compactWidth
+
+                  RetryImage {
+                    id: playlistCover
+                    anchors.fill: parent
+                    requestedSource: modelData && modelData.imageUrl
+                      ? String(modelData.imageUrl) : ""
+                    sourceSize.width: 64
+                    sourceSize.height: 64
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                    visible: status === Image.Ready
+                  }
+
+                  OpticalGlyph {
+                    anchors.fill: parent
+                    visible: playlistCover.status !== Image.Ready
+                    text: "󰲸"
+                    color: parent.parent.selected
+                      ? Style.selectedStateColor(root.foreground, root.accent)
+                      : root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.iconLarge
                   }
                 }
               }
@@ -3681,7 +3719,7 @@ Item {
                   ? Style.selectedStateColor(root.foreground, root.accent)
                   : root.foreground
                 fontFamily: root.fontFamily
-                fontSize: Style.font.icon
+                fontSize: Style.font.iconLarge
               }
             }
           }
@@ -3723,7 +3761,7 @@ Item {
                       ? Style.selectedStateColor(root.foreground, root.accent)
                       : root.foreground
                     fontFamily: root.fontFamily
-                    fontSize: Style.font.icon
+                    fontSize: Style.font.iconLarge
                   }
                 }
               }
